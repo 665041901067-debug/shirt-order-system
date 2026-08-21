@@ -98,7 +98,7 @@ export async function createSingleUser(input: {
   const email = `${digitsOnly}@mail.rmutk.ac.th`;
   const initialPassword = input.password && input.password.trim().length >= 6 
     ? input.password.trim() 
-    : cleanId;
+    : (cleanId.length >= 6 ? cleanId : `${cleanId}123456`);
 
   // 1. Check duplicate email or student ID with fuzzy matching
   const { data: allProfiles } = await supabase.from("profiles").select("*");
@@ -107,7 +107,7 @@ export async function createSingleUser(input: {
 
   const existingProfile = (allProfiles || []).find((p: any) => {
     const pDigits = (p.student_id || "").replace(/[^0-9]/g, "");
-    if (pDigits && targetDigits && pDigits === targetDigits) return true;
+    if (pDigits && targetDigits && pDigits === targetDigits && targetDigits.length >= 6) return true;
     const pNorm = normalizeThaiName((p.first_name || "") + (p.last_name || ""));
     return pNorm && targetNorm && pNorm === targetNorm;
   });
@@ -138,9 +138,9 @@ export async function createSingleUser(input: {
   const authHelper = getAuthAccountCreatorClient();
   let authUserId: string | null = null;
 
-  try {
-    if (authHelper.type === "SERVICE_ROLE") {
-      const { data: authData } = await authHelper.client.auth.admin.createUser({
+  if (authHelper.type === "SERVICE_ROLE") {
+    try {
+      const { data: authData, error: adminErr } = await authHelper.client.auth.admin.createUser({
         email,
         password: initialPassword,
         email_confirm: true,
@@ -150,8 +150,25 @@ export async function createSingleUser(input: {
           student_id: cleanId,
         },
       });
-      authUserId = authData.user?.id || null;
-    } else {
+
+      if (authData?.user?.id) {
+        authUserId = authData.user.id;
+      } else if (adminErr) {
+        const { data: listData } = await authHelper.client.auth.admin.listUsers({ perPage: 1000 });
+        const existingAuth = listData?.users?.find(
+          (u) => u.email?.toLowerCase() === email.toLowerCase()
+        );
+        if (existingAuth) {
+          authUserId = existingAuth.id;
+        }
+      }
+    } catch (e: any) {
+      console.warn("Auth admin createUser error:", e?.message);
+    }
+  }
+
+  if (!authUserId) {
+    try {
       const { data: authData } = await authHelper.client.auth.signUp({
         email,
         password: initialPassword,
@@ -172,16 +189,19 @@ export async function createSingleUser(input: {
         });
         authUserId = signInData?.user?.id || null;
       }
+    } catch (e: any) {
+      console.warn("Auth signup error:", e?.message);
     }
-  } catch (err: any) {
-    console.warn("Auth signup error:", err?.message);
   }
 
   if (!authUserId) {
-    authUserId = crypto.randomUUID();
+    return { 
+      success: false, 
+      error: "ไม่สามารถสร้างบัญชีผู้ใช้ในระบบ Auth ได้ กรุณาระบุรหัสผ่านอย่างน้อย 6 ตัวอักษร" 
+    };
   }
 
-  // 3. Upsert into public.profiles
+  // 3. Upsert into public.profiles with valid auth user ID
   const { data, error } = await supabase
     .from("profiles")
     .upsert({
@@ -385,6 +405,18 @@ export async function importUsersBatch(
   let importedCount = 0;
   let rateLimitHit = false;
 
+  const authUsersMap = new Map<string, string>();
+  if (authHelper.type === "SERVICE_ROLE") {
+    try {
+      const { data: listData } = await authHelper.client.auth.admin.listUsers({ perPage: 1000 });
+      if (listData?.users) {
+        listData.users.forEach((u) => {
+          if (u.email) authUsersMap.set(u.email.toLowerCase(), u.id);
+        });
+      }
+    } catch (e) {}
+  }
+
   for (const item of items) {
     const cleanStudentId = item.student_id.trim();
     const cleanFirstName = item.first_name.trim();
@@ -392,7 +424,9 @@ export async function importUsersBatch(
     const cleanPhone = (item.phone || "").replace(/[^0-9]/g, "");
     const digitsOnly = cleanStudentId.replace(/[^0-9]/g, "");
     const email = item.email || `${digitsOnly}@mail.rmutk.ac.th`;
-    const initialPassword = item.password || cleanStudentId;
+    const initialPassword = item.password && item.password.trim().length >= 6 
+      ? item.password.trim() 
+      : (cleanStudentId.length >= 6 ? cleanStudentId : `${cleanStudentId}123456`);
 
     let year = item.academic_year;
     if (!year) {
@@ -412,7 +446,7 @@ export async function importUsersBatch(
 
       const matchedProfile = existingProfiles.find((p) => {
         const pDigits = (p.student_id || "").replace(/[^0-9]/g, "");
-        if (pDigits && targetDigits && pDigits === targetDigits && targetDigits.length >= 8) return true;
+        if (pDigits && targetDigits && pDigits === targetDigits && targetDigits.length >= 6) return true;
         
         const pCombined = normalizeThaiName((p.first_name || "") + (p.last_name || ""));
         if (pCombined && targetCombined && (pCombined === targetCombined || pCombined.includes(targetCombined) || targetCombined.includes(pCombined))) {
@@ -457,20 +491,29 @@ export async function importUsersBatch(
         let targetAuthId: string | null = null;
 
         if (authHelper.type === "SERVICE_ROLE") {
-          try {
-            const { data: authData } = await authHelper.client.auth.admin.createUser({
-              email,
-              password: initialPassword,
-              email_confirm: true,
-              user_metadata: {
-                first_name: cleanFirstName,
-                last_name: cleanLastName,
-                student_id: cleanStudentId,
-              },
-            });
-            targetAuthId = authData.user?.id || null;
-          } catch (e) {}
-        } else {
+          if (authUsersMap.has(email.toLowerCase())) {
+            targetAuthId = authUsersMap.get(email.toLowerCase())!;
+          } else {
+            try {
+              const { data: authData, error: adminErr } = await authHelper.client.auth.admin.createUser({
+                email,
+                password: initialPassword,
+                email_confirm: true,
+                user_metadata: {
+                  first_name: cleanFirstName,
+                  last_name: cleanLastName,
+                  student_id: cleanStudentId,
+                },
+              });
+              if (authData?.user?.id) {
+                targetAuthId = authData.user.id;
+                authUsersMap.set(email.toLowerCase(), targetAuthId);
+              }
+            } catch (e) {}
+          }
+        }
+
+        if (!targetAuthId) {
           // Anon client: Try sign up first
           try {
             const { data: authData, error: sErr } = await authHelper.client.auth.signUp({
@@ -520,7 +563,8 @@ export async function importUsersBatch(
         }
 
         if (!targetAuthId) {
-          targetAuthId = crypto.randomUUID();
+          console.warn(`Could not obtain auth ID for ${cleanStudentId}, skipping insert to avoid foreign key violation`);
+          continue;
         }
 
         const { error: insErr } = await supabase
