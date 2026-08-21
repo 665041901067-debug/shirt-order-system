@@ -1,9 +1,11 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+import { getUserCart } from "@/services/cart";
 import { Cart, CartItem } from "@/types";
 import { updateCartItemQuantity, removeCartItem, clearCart } from "@/services/cart";
 import { useToast } from "@/components/ui/toast";
@@ -33,6 +35,37 @@ export function CartViewInteractive({ initialCart }: Props) {
   const toast = useToast();
   const [cart, setCart] = useState<Cart | null>(initialCart);
   const [loadingItemId, setLoadingItemId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setCart(initialCart);
+  }, [initialCart]);
+
+  // Realtime Live Cart Sync
+  useEffect(() => {
+    const supabase = createClient();
+
+    const fetchLatestCart = async () => {
+      try {
+        const freshCart = await getUserCart();
+        setCart(freshCart);
+      } catch (e) {}
+    };
+
+    const channel = supabase
+      .channel("student-cart-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "cart_items" },
+        () => {
+          fetchLatestCart();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   const items = cart?.items || [];
 

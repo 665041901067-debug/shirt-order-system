@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Product, ProductSize, ProductImage } from "@/types";
 import { createClient } from "@/lib/supabase/client";
+import { getProducts } from "@/services/products";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +25,51 @@ export function AdminProductsInteractive({ initialProducts }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [uploadingImgId, setUploadingImgId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setProducts(initialProducts);
+  }, [initialProducts]);
+
+  // Realtime Live Sync for Admin Products
+  useEffect(() => {
+    const supabase = createClient();
+
+    const fetchLatestProducts = async () => {
+      try {
+        const freshProducts = await getProducts();
+        setProducts(freshProducts);
+      } catch (e) {}
+    };
+
+    const channel = supabase
+      .channel("admin-products-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "products" },
+        () => {
+          fetchLatestProducts();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "product_sizes" },
+        () => {
+          fetchLatestProducts();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "product_images" },
+        () => {
+          fetchLatestProducts();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   // Product Form state
   const [formData, setFormData] = useState({

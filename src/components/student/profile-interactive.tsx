@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 import { Profile } from "@/types";
 import { saveProfileOnboarding, changeUserPassword } from "@/services/profile";
 import { useToast } from "@/components/ui/toast";
@@ -37,6 +38,42 @@ export function ProfileInteractive({ initialProfile }: Props) {
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+
+  useEffect(() => {
+    setProfile(initialProfile);
+  }, [initialProfile]);
+
+  // Realtime Live Sync for User Profile
+  useEffect(() => {
+    if (!initialProfile?.id) return;
+    const supabase = createClient();
+
+    const fetchLatestProfile = async () => {
+      try {
+        const { data } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", initialProfile.id)
+          .single();
+        if (data) setProfile((prev) => ({ ...prev, ...data }));
+      } catch (e) {}
+    };
+
+    const channel = supabase
+      .channel(`profile-realtime-${initialProfile.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "profiles", filter: `id=eq.${initialProfile.id}` },
+        () => {
+          fetchLatestProfile();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [initialProfile?.id]);
 
   // Edit form state (Pre-filled with old/current data)
   const [formData, setFormData] = useState({

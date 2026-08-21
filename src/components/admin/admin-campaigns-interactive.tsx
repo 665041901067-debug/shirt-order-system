@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Campaign, CampaignStatus } from "@/types";
 import { createClient } from "@/lib/supabase/client";
@@ -21,6 +21,40 @@ export function AdminCampaignsInteractive({ initialCampaigns }: Props) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+
+  useEffect(() => {
+    setCampaigns(initialCampaigns);
+  }, [initialCampaigns]);
+
+  // Realtime Live Sync for Campaigns
+  useEffect(() => {
+    const supabase = createClient();
+
+    const fetchLatestCampaigns = async () => {
+      try {
+        const { data } = await supabase
+          .from("campaigns")
+          .select("*")
+          .order("created_at", { ascending: false });
+        if (data) setCampaigns(data as Campaign[]);
+      } catch (e) {}
+    };
+
+    const channel = supabase
+      .channel("admin-campaigns-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "campaigns" },
+        () => {
+          fetchLatestCampaigns();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   const [formData, setFormData] = useState({
     title: "",

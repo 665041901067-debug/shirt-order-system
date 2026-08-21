@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { PaymentMethodConfig } from "@/types";
@@ -33,6 +33,37 @@ export function AdminPaymentsInteractive({ initialMethods }: Props) {
   const toast = useToast();
   const [methods, setMethods] = useState<PaymentMethodConfig[]>(initialMethods);
   const [loadingId, setLoadingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setMethods(initialMethods);
+  }, [initialMethods]);
+
+  // Realtime Live Sync for Payment Methods
+  useEffect(() => {
+    const supabase = createClient();
+
+    const fetchLatestMethods = async () => {
+      try {
+        const { data } = await supabase.from("payment_methods").select("*");
+        if (data) setMethods(data as PaymentMethodConfig[]);
+      } catch (e) {}
+    };
+
+    const channel = supabase
+      .channel("admin-payments-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "payment_methods" },
+        () => {
+          fetchLatestMethods();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   // Fallback default methods if table in DB is empty
   const qrMethodInState = methods.find((m) => m.type === "QR_PAYMENT");

@@ -1,7 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import ExcelJS from "exceljs";
+import { createClient } from "@/lib/supabase/client";
+import { getProductionSummary, getAllAdminOrders } from "@/services/admin";
 import { Order } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -32,11 +34,56 @@ interface Props {
   orders: Order[];
 }
 
-export function ProductionInteractive({ summary, orders }: Props) {
+export function ProductionInteractive({ summary: initialSummary, orders: initialOrders }: Props) {
+  const [summary, setSummary] = useState(initialSummary);
+  const [orders, setOrders] = useState<Order[]>(initialOrders);
   const [search, setSearch] = useState("");
   const [selectedSizeFilter, setSelectedSizeFilter] = useState<string>("ALL");
   const [selectedSportFilter, setSelectedSportFilter] = useState<string>("ALL");
   const [selectedCustomFilter, setSelectedCustomFilter] = useState<string>("ALL");
+
+  useEffect(() => {
+    setSummary(initialSummary);
+    setOrders(initialOrders);
+  }, [initialSummary, initialOrders]);
+
+  // Realtime Live Sync for Production Summary & Orders
+  useEffect(() => {
+    const supabase = createClient();
+
+    const fetchLatestProductionData = async () => {
+      try {
+        const [freshSummary, freshOrders] = await Promise.all([
+          getProductionSummary(),
+          getAllAdminOrders(),
+        ]);
+        setSummary(freshSummary);
+        setOrders(freshOrders);
+      } catch (e) {}
+    };
+
+    const channel = supabase
+      .channel("admin-production-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "orders" },
+        () => {
+          fetchLatestProductionData();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "order_items" },
+        () => {
+          fetchLatestProductionData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   // Flatten items with order details for easy factory order job sheet
   const productionList: Array<{

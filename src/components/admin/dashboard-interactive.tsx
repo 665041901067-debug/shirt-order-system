@@ -1,7 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
+import { getAdminDashboardMetrics, getAllAdminOrders } from "@/services/admin";
 import { Order } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -53,8 +55,52 @@ interface Props {
 
 const COLORS = ["#2563EB", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#64748B"];
 
-export function DashboardInteractive({ initialMetrics, orders }: Props) {
-  const [metrics] = useState(initialMetrics);
+export function DashboardInteractive({ initialMetrics, orders: initialOrders }: Props) {
+  const [metrics, setMetrics] = useState(initialMetrics);
+  const [orders, setOrders] = useState<Order[]>(initialOrders);
+
+  useEffect(() => {
+    setMetrics(initialMetrics);
+    setOrders(initialOrders);
+  }, [initialMetrics, initialOrders]);
+
+  // Realtime Live Sync for Admin Dashboard
+  useEffect(() => {
+    const supabase = createClient();
+
+    const fetchLatestData = async () => {
+      try {
+        const [freshMetrics, freshOrders] = await Promise.all([
+          getAdminDashboardMetrics(),
+          getAllAdminOrders(),
+        ]);
+        setMetrics(freshMetrics);
+        setOrders(freshOrders);
+      } catch (e) {}
+    };
+
+    const channel = supabase
+      .channel("admin-dashboard-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "orders" },
+        () => {
+          fetchLatestData();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "payments" },
+        () => {
+          fetchLatestData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   const hasData = orders.length > 0;
 

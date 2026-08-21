@@ -31,21 +31,27 @@ export function Header({ profile, cartCount = 0, unreadNotifications = 0 }: Head
   const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [liveCartCount, setLiveCartCount] = useState(cartCount);
+  const [liveUnreadCount, setLiveUnreadCount] = useState(unreadNotifications);
 
   const isAdmin = profile?.role === "ADMIN";
 
-  // Update liveCartCount when prop changes
+  // Update live counts when props change
   useEffect(() => {
     setLiveCartCount(cartCount);
   }, [cartCount]);
 
-  // Realtime Live Cart Count Listener for dynamic changes
   useEffect(() => {
-    if (!profile || isAdmin) return;
+    setLiveUnreadCount(unreadNotifications);
+  }, [unreadNotifications]);
+
+  // Realtime Live Cart Count & Notifications Listener
+  useEffect(() => {
+    if (!profile) return;
 
     const supabase = createClient();
 
     const fetchLiveCartCount = async () => {
+      if (isAdmin) return;
       try {
         const { data: cart } = await supabase
           .from("carts")
@@ -61,14 +67,33 @@ export function Header({ profile, cartCount = 0, unreadNotifications = 0 }: Head
       } catch (e) {}
     };
 
-    // Listen for realtime cart changes (add/remove/checkout)
+    const fetchLiveNotificationsCount = async () => {
+      try {
+        const { count } = await supabase
+          .from("notifications")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", profile.id)
+          .eq("read", false);
+
+        setLiveUnreadCount(count || 0);
+      } catch (e) {}
+    };
+
+    // Listen for realtime cart and notification changes
     const channel = supabase
-      .channel(`live-cart-count-${profile.id}`)
+      .channel(`live-header-sync-${profile.id}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "cart_items" },
         () => {
           fetchLiveCartCount();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "notifications" },
+        () => {
+          fetchLiveNotificationsCount();
         }
       )
       .subscribe();
@@ -90,7 +115,7 @@ export function Header({ profile, cartCount = 0, unreadNotifications = 0 }: Head
     { href: "/products", label: "สินค้าทั้งหมด" },
     { href: "/orders", label: "คำสั่งซื้อของฉัน" },
     { href: "/cart", label: "ตะกร้าสินค้า", badge: liveCartCount },
-    { href: "/notifications", label: "แจ้งเตือน", badge: unreadNotifications },
+    { href: "/notifications", label: "แจ้งเตือน", badge: liveUnreadCount },
     { href: "/profile", label: "ข้อมูลส่วนตัว" },
   ];
 

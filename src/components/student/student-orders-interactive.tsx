@@ -1,14 +1,16 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
+import { getUserOrders } from "@/services/orders";
 import { Order, OrderStatus } from "@/types";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Clock, ArrowRight, ShoppingBag, Eye, Search } from "lucide-react";
+import { Clock, ArrowRight, ShoppingBag, Eye, Search, Radio } from "lucide-react";
 import { getStatusBadgeVariant, getStatusLabel } from "@/lib/order-status";
 import { extractSportType, getSportBadgeColor } from "@/lib/sports";
 
@@ -17,9 +19,48 @@ interface Props {
 }
 
 export function StudentOrdersInteractive({ initialOrders }: Props) {
-  const [orders] = useState<Order[]>(initialOrders);
+  const [orders, setOrders] = useState<Order[]>(initialOrders);
   const [search, setSearch] = useState("");
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>("ALL");
+
+  // Keep state in sync with initial props
+  useEffect(() => {
+    setOrders(initialOrders);
+  }, [initialOrders]);
+
+  // Supabase Realtime Listener for Live Order Status Updates
+  useEffect(() => {
+    const supabase = createClient();
+
+    const fetchLatestOrders = async () => {
+      try {
+        const freshOrders = await getUserOrders();
+        setOrders(freshOrders);
+      } catch (e) {}
+    };
+
+    const channel = supabase
+      .channel("student-orders-live-status")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "orders" },
+        () => {
+          fetchLatestOrders();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "payments" },
+        () => {
+          fetchLatestOrders();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   const filteredOrders = orders.filter((order) => {
     const matchesSearch =

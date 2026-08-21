@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 import { Profile } from "@/types";
 import { saveProfileOnboarding } from "@/services/profile";
 import { useToast } from "@/components/ui/toast";
@@ -18,7 +19,8 @@ import {
   Save, 
   KeyRound, 
   ShieldCheck,
-  CheckCircle2
+  CheckCircle2,
+  LogOut
 } from "lucide-react";
 
 interface Props {
@@ -131,8 +133,33 @@ export function OnboardingInteractive({ initialProfile }: Props) {
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      const supabase = createClient();
+      await supabase.auth.signOut();
+      toast.info("ออกจากระบบเรียบร้อยแล้ว");
+      window.location.href = "/login";
+    } catch (e) {
+      window.location.href = "/login";
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex flex-col justify-center items-center px-4 py-12">
+    <div className="min-h-screen bg-[#F8FAFC] flex flex-col justify-center items-center px-4 py-12 relative">
+      {/* Top Floating Logout Button */}
+      <div className="absolute top-4 right-4 sm:top-6 sm:right-8">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={handleLogout}
+          className="rounded-xl border-slate-200 bg-white hover:bg-red-50 hover:text-red-600 hover:border-red-200 text-slate-600 text-xs font-bold shadow-xs transition-all flex items-center gap-1.5 px-3.5 py-2"
+        >
+          <LogOut className="h-4 w-4" />
+          <span>ออกจากระบบ</span>
+        </Button>
+      </div>
+
       <div className="w-full max-w-lg space-y-6">
         
         {/* Header */}
@@ -350,6 +377,18 @@ export function OnboardingInteractive({ initialProfile }: Props) {
             </form>
           </CardContent>
         </Card>
+
+        {/* Bottom Alternative Logout Option */}
+        <div className="text-center">
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="text-xs font-semibold text-slate-500 hover:text-red-600 transition-colors inline-flex items-center gap-1.5 p-2"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            <span>ต้องการสลับบัญชีหรือออกจากระบบ? คลิกที่นี่</span>
+          </button>
+        </div>
 
       </div>
     </div>
