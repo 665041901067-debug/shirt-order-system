@@ -195,3 +195,57 @@ export async function getProductionSummary(): Promise<{
     numberSummary: Object.entries(numberMap).map(([custom_number, count]) => ({ custom_number, count })),
   };
 }
+
+export async function clearAllOrdersData(): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) return { success: false, error: "กรุณาเข้าสู่ระบบก่อนทำรายการ" };
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+
+  if (profile?.role !== "ADMIN") {
+    return { success: false, error: "เฉพาะผู้ดูแลระบบเท่านั้นที่มีสิทธิ์ล้างข้อมูลคำสั่งซื้อ" };
+  }
+
+  try {
+    // 1. Delete order item options
+    await supabase.from("order_item_options").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+    
+    // 2. Delete order items
+    await supabase.from("order_items").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+
+    // 3. Delete order status history
+    await supabase.from("order_status_history").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+
+    // 4. Delete payments
+    await supabase.from("payments").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+
+    // 5. Delete order notifications
+    await supabase.from("notifications").delete().or("type.eq.ORDER_STATUS,link_url.ilike.%orders%");
+
+    // 6. Delete carts and cart items
+    await supabase.from("cart_item_options").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+    await supabase.from("cart_items").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+
+    // 7. Delete all orders
+    const { error: ordErr } = await supabase.from("orders").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+    if (ordErr) throw ordErr;
+
+    // 8. Log audit
+    await supabase.from("audit_logs").insert({
+      user_id: user.id,
+      action: "CLEAR_ALL_ORDERS",
+      entity_type: "orders",
+      metadata: { cleared_at: new Date().toISOString() },
+    });
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "เกิดข้อผิดพลาดในการล้างข้อมูล" };
+  }
+}

@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Order, OrderStatus, PaymentStatus } from "@/types";
-import { updateOrderStatus, verifyPayment } from "@/services/admin";
+import { updateOrderStatus, verifyPayment, clearAllOrdersData } from "@/services/admin";
 import { getStatusBadgeVariant, getStatusLabel } from "@/lib/order-status";
 import { createClient } from "@/lib/supabase/client";
 import { SmartPickupScannerModal } from "./smart-pickup-scanner-modal";
@@ -30,7 +30,8 @@ import {
   SlidersHorizontal,
   Check,
   RotateCcw,
-  Edit3
+  Edit3,
+  Trash2
 } from "lucide-react";
 
 import { useToast } from "@/components/ui/toast";
@@ -76,8 +77,26 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
   const [activeOrderForSlip, setActiveOrderForSlip] = useState<Order | null>(null);
   const [isEditingSlipStatus, setIsEditingSlipStatus] = useState(false);
 
+  const [isClearAllModalOpen, setIsClearAllModalOpen] = useState(false);
+  const [isClearingOrders, setIsClearingOrders] = useState(false);
+
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [warningMsg, setWarningMsg] = useState("");
+
+  const handleClearAllOrders = async () => {
+    setIsClearingOrders(true);
+    // 1. Instant Optimistic clear (0ms)
+    setOrders([]);
+    setIsClearAllModalOpen(false);
+    toast.success("ล้างข้อมูลคำสั่งซื้อทดลองทั้งหมดเรียบร้อยแล้ว (ระบบพร้อมเริ่มต้นใหม่อัตโนมัติ)");
+
+    // 2. Backend clear
+    const res = await clearAllOrdersData();
+    setIsClearingOrders(false);
+    if (!res.success) {
+      toast.error(res.error || "เกิดข้อผิดพลาดในการล้างข้อมูลคำสั่งซื้อ");
+    }
+  };
 
   // Supabase Realtime for Admin Orders Table
   useEffect(() => {
@@ -280,8 +299,18 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
           </h1>
         </div>
 
-        {/* Action Buttons: Smart Scanner & Filter Toggle */}
+        {/* Action Buttons: Clear Orders, Smart Scanner & Filter Toggle */}
         <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setIsClearAllModalOpen(true)}
+            className="rounded-xl text-xs font-bold text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300 transition-all shadow-xs"
+            title="ล้างข้อมูลคำสั่งซื้อทดลองทั้งหมดเพื่อเริ่มระบบใหม่"
+          >
+            <Trash2 className="h-4 w-4 mr-1.5 text-red-500" />
+            <span>ล้างออเดอร์ทั้งหมด (เป็น 0)</span>
+          </Button>
+
           <Button
             onClick={() => setIsScannerOpen(true)}
             className="rounded-xl bg-slate-900 hover:bg-slate-800 text-white shadow-md text-xs font-bold"
@@ -1072,6 +1101,64 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
                   )}
                 </div>
               )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Clear All Orders Confirmation Modal */}
+      {isClearAllModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <Card className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden">
+            <CardContent className="p-6 space-y-4">
+              <div className="flex items-center gap-3 text-red-600">
+                <div className="h-12 w-12 rounded-2xl bg-red-100 flex items-center justify-center shrink-0">
+                  <Trash2 className="h-6 w-6 text-red-600" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base text-slate-900">
+                    ยืนยันล้างข้อมูลคำสั่งซื้อทั้งหมด?
+                  </h3>
+                  <p className="text-xs text-red-600 font-medium">
+                    รีเซ็ตคำสั่งซื้อเป็น 0 เพื่อเริ่มใช้งานจริง
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-3.5 bg-red-50/70 border border-red-100 rounded-2xl text-xs text-slate-600 space-y-2">
+                <p className="font-bold text-slate-800">
+                  การกระทำนี้จะล้างข้อมูลดังต่อไปนี้:
+                </p>
+                <ul className="list-disc list-inside space-y-1 text-[11px] text-slate-600">
+                  <li>คำสั่งซื้อและรายการสินค้าในออเดอร์ทั้งหมด</li>
+                  <li>ประวัติการเปลี่ยนสถานะและสลิปการโอนเงินทดลอง</li>
+                  <li>การแจ้งเตือนเกี่ยวกับคำสั่งซื้อทั้งหมด</li>
+                  <li>สินค้าในตะกร้าค้างของทุกคน</li>
+                </ul>
+                <p className="text-[11px] text-emerald-700 font-bold pt-1">
+                  ✨ ข้อมูลสินค้า (Products) และรายชื่อนักศึกษา/ผู้ใช้ (Users) จะไม่ได้รับผลกระทบใดๆ และหมายเลขออเดอร์ถัดไปจะเริ่มนับจาก #CS-2026-00001 ใหม่อัตโนมัติ!
+                </p>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setIsClearAllModalOpen(false)}
+                  className="flex-1 rounded-xl text-xs font-bold h-11"
+                  disabled={isClearingOrders}
+                >
+                  ยกเลิก
+                </Button>
+                <Button
+                  variant="danger"
+                  isLoading={isClearingOrders}
+                  onClick={handleClearAllOrders}
+                  className="flex-1 rounded-xl text-xs font-bold h-11 bg-red-600 hover:bg-red-500 text-white shadow-md shadow-red-500/20"
+                >
+                  <Trash2 className="h-4 w-4 mr-1" />
+                  <span>ยืนยันล้างข้อมูลทั้งหมด</span>
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </div>
