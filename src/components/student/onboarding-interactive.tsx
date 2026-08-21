@@ -8,7 +8,18 @@ import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { UserCheck, Sparkles, Eye, EyeOff, Lock, AlertCircle, Save } from "lucide-react";
+import { 
+  UserCheck, 
+  Sparkles, 
+  Eye, 
+  EyeOff, 
+  Lock, 
+  AlertCircle, 
+  Save, 
+  KeyRound, 
+  ShieldCheck,
+  CheckCircle2
+} from "lucide-react";
 
 interface Props {
   initialProfile: Profile | null;
@@ -21,14 +32,14 @@ export function OnboardingInteractive({ initialProfile }: Props) {
   const [formData, setFormData] = useState({
     first_name: initialProfile?.first_name || "",
     last_name: initialProfile?.last_name || "",
-    nickname: initialProfile?.nickname || "",
+    nickname: initialProfile?.nickname && initialProfile.nickname !== "-" ? initialProfile.nickname : "",
     student_id: initialProfile?.student_id || "",
-    phone: initialProfile?.phone || "",
+    phone: initialProfile?.phone && initialProfile.phone !== "-" ? initialProfile.phone : "",
     academic_year: initialProfile?.academic_year || "ปี 1",
     major: initialProfile?.major || "วิศวกรรมคอมพิวเตอร์และระบบ IoT",
   });
 
-  // Optional new password state
+  // New password state
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showNewPassword, setShowNewPassword] = useState(false);
@@ -47,9 +58,30 @@ export function OnboardingInteractive({ initialProfile }: Props) {
     }
   };
 
+  const isPasswordMatching = newPassword.length > 0 && newPassword === confirmPassword;
+  const isPasswordEntered = newPassword.length > 0;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg("");
+
+    if (!formData.first_name.trim()) {
+      setErrorMsg("กรุณากรอกชื่อจริง");
+      toast.error("กรุณากรอกชื่อจริง");
+      return;
+    }
+
+    if (!formData.last_name.trim()) {
+      setErrorMsg("กรุณากรอกนามสกุล");
+      toast.error("กรุณากรอกนามสกุล");
+      return;
+    }
+
+    if (!formData.nickname.trim()) {
+      setErrorMsg("กรุณากรอกชื่อเล่น (สำหรับใช้เรียกและประสานงานแจกเสื้อ)");
+      toast.error("กรุณากรอกชื่อเล่น");
+      return;
+    }
 
     const cleanPhone = formData.phone.replace(/[^0-9]/g, "");
     if (cleanPhone.length !== 10) {
@@ -90,7 +122,7 @@ export function OnboardingInteractive({ initialProfile }: Props) {
         toast.error(res.error || "เกิดข้อผิดพลาดในการบันทึกข้อมูล");
         setLoading(false);
       } else {
-        toast.success("บันทึกข้อมูลส่วนตัวเรียบร้อยแล้ว!");
+        toast.success("บันทึกข้อมูลส่วนตัวและรหัสผ่านเรียบร้อยแล้ว!");
         window.location.href = initialProfile?.role === "ADMIN" ? "/admin" : "/";
       }
     } catch (err: any) {
@@ -104,20 +136,23 @@ export function OnboardingInteractive({ initialProfile }: Props) {
       <div className="w-full max-w-lg space-y-6">
         
         {/* Header */}
-        <div className="text-center">
-          <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-100 text-blue-600 mb-3 shadow-xs">
-            <UserCheck className="h-7 w-7" />
+        <div className="text-center space-y-2">
+          <div className="inline-flex h-16 w-16 items-center justify-center rounded-3xl bg-blue-50 text-blue-600 border border-blue-200/60 shadow-sm">
+            <UserCheck className="h-8 w-8" />
           </div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-            กรอกข้อมูลส่วนตัวนักศึกษา
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+            ยินดีต้อนรับเข้าสู่ระบบครั้งแรก 🎉
           </h1>
+          <p className="text-xs sm:text-sm text-slate-500 max-w-sm mx-auto">
+            กรุณาตรวจสอบข้อมูลส่วนตัวและตั้งรหัสผ่านใหม่ของคุณ เพื่อความปลอดภัยในการใช้งานระบบ
+          </p>
         </div>
 
         <Card className="border-slate-200 shadow-xl shadow-slate-200/50 rounded-3xl overflow-hidden bg-white">
           <CardHeader className="border-b border-slate-100 pb-4 bg-slate-50/50">
             <CardTitle className="text-base font-bold text-slate-900 flex items-center gap-2">
               <Sparkles className="h-5 w-5 text-blue-600" />
-              <span>ข้อมูลสำหรับระบบสั่งซื้อเสื้อกีฬา</span>
+              <span>ข้อมูลนักศึกษาและรหัสผ่านเข้าใช้งาน</span>
             </CardTitle>
           </CardHeader>
 
@@ -131,6 +166,7 @@ export function OnboardingInteractive({ initialProfile }: Props) {
 
             <form onSubmit={handleSubmit} className="space-y-4">
               
+              {/* 1. Name & Surname */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-700">ชื่อจริง *</label>
@@ -156,16 +192,20 @@ export function OnboardingInteractive({ initialProfile }: Props) {
                 </div>
               </div>
 
+              {/* 2. Nickname & Student ID */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-700">ชื่อเล่น *</label>
+                  <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                    <span>ชื่อเล่น *</span>
+                    <span className="text-[10px] text-blue-600 font-normal">(จำเป็นสำหรับคนแจกเสื้อ)</span>
+                  </label>
                   <Input
                     name="nickname"
-                    placeholder="เช่น บอล, โดม, นนท์"
+                    placeholder="เช่น บอล, นนท์, มายด์"
                     value={formData.nickname}
                     onChange={handleChange}
                     required
-                    className="rounded-xl text-xs h-11"
+                    className="rounded-xl text-xs h-11 font-medium"
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -181,10 +221,12 @@ export function OnboardingInteractive({ initialProfile }: Props) {
                 </div>
               </div>
 
+              {/* 3. Phone & Academic Year */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-700">
-                    เบอร์โทรศัพท์ติดต่อ (10 หลัก) *
+                  <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                    <span>เบอร์โทรศัพท์มือถือ *</span>
+                    <span className="text-[10px] text-slate-400 font-normal">10 หลัก</span>
                   </label>
                   <Input
                     name="phone"
@@ -193,7 +235,7 @@ export function OnboardingInteractive({ initialProfile }: Props) {
                     onChange={handleChange}
                     required
                     maxLength={10}
-                    className="rounded-xl text-xs h-11 font-mono"
+                    className="rounded-xl text-xs h-11 font-mono font-medium"
                   />
                 </div>
 
@@ -215,20 +257,31 @@ export function OnboardingInteractive({ initialProfile }: Props) {
                 </div>
               </div>
 
-              {/* Optional: Password Setting */}
-              <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl space-y-3">
-                <div className="flex items-center gap-1.5 font-bold text-xs text-slate-800">
-                  <Lock className="h-4 w-4 text-blue-600" />
-                  <span>ตั้งรหัสผ่านใหม่ (ไม่บังคับ)</span>
+              {/* 4. SET NEW PASSWORD SECTION */}
+              <div className="p-4 sm:p-5 bg-linear-to-br from-blue-50/70 to-slate-50 border border-blue-100 rounded-2xl space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-blue-600 text-white shadow-2xs">
+                    <KeyRound className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-xs text-slate-900">
+                      ตั้งรหัสผ่านใหม่ของคุณ (Set New Password)
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      ตั้งรหัสผ่านใหม่เพื่อใช้เข้าสู่ระบบในครั้งถัดไปแทนรหัสผ่านเริ่มต้น
+                    </p>
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                   <div className="space-y-1">
-                    <label className="text-[11px] font-semibold text-slate-600">รหัสผ่านใหม่</label>
+                    <label className="text-[11px] font-semibold text-slate-700">
+                      รหัสผ่านใหม่ (อย่างน้อย 6 ตัว)
+                    </label>
                     <div className="relative">
                       <Input
                         type={showNewPassword ? "text" : "password"}
-                        placeholder="อย่างน้อย 6 ตัวอักษร"
+                        placeholder="กรอกรหัสผ่านใหม่"
                         value={newPassword}
                         onChange={(e) => setNewPassword(e.target.value)}
                         className="pr-10 rounded-xl text-xs h-10 bg-white"
@@ -244,7 +297,9 @@ export function OnboardingInteractive({ initialProfile }: Props) {
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-[11px] font-semibold text-slate-600">ยืนยันรหัสผ่าน</label>
+                    <label className="text-[11px] font-semibold text-slate-700">
+                      ยืนยันรหัสผ่านใหม่อีกครั้ง
+                    </label>
                     <div className="relative">
                       <Input
                         type={showConfirmPassword ? "text" : "password"}
@@ -263,8 +318,24 @@ export function OnboardingInteractive({ initialProfile }: Props) {
                     </div>
                   </div>
                 </div>
+
+                {isPasswordEntered && (
+                  <div className="text-[11px] pt-1">
+                    {isPasswordMatching ? (
+                      <span className="text-emerald-600 font-bold flex items-center gap-1">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        รหัสผ่านตรงกันเรียบร้อย
+                      </span>
+                    ) : (
+                      <span className="text-amber-600 font-medium">
+                        * รหัสผ่านใหม่และการยืนยันยังไม่ตรงกัน
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
+              {/* Submit Button */}
               <div className="pt-2">
                 <Button
                   type="submit"

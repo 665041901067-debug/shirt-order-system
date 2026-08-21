@@ -25,6 +25,16 @@ export async function getCurrentProfile(): Promise<Profile | null> {
   return null;
 }
 
+export async function isProfileIncomplete(profile: Profile | null): Promise<boolean> {
+  if (!profile) return true;
+  const cleanPhone = (profile.phone || "").replace(/[^0-9]/g, "");
+  if (cleanPhone.length !== 10) return true;
+  if (!profile.nickname || profile.nickname.trim() === "" || profile.nickname === "-") return true;
+  if (!profile.first_name || profile.first_name.trim() === "") return true;
+  if (!profile.last_name || profile.last_name.trim() === "") return true;
+  return false;
+}
+
 export async function saveProfileOnboarding(input: {
   first_name: string;
   last_name: string;

@@ -1,15 +1,21 @@
 import React from "react";
 import { redirect } from "next/navigation";
-import { getCurrentProfile } from "@/services/profile";
+import { getCurrentProfile, isProfileIncomplete } from "@/services/profile";
 import { getUserCart } from "@/services/cart";
 import { getActivePaymentMethods } from "@/services/payments";
 import { Header } from "@/components/shared/header";
 import { CheckoutInteractive } from "@/components/student/checkout-interactive";
 
 export default async function CheckoutPage() {
-  const profile = await getCurrentProfile();
-  const cart = await getUserCart();
-  const paymentMethods = await getActivePaymentMethods();
+  const [profile, cart, paymentMethods] = await Promise.all([
+    getCurrentProfile(),
+    getUserCart(),
+    getActivePaymentMethods(),
+  ]);
+
+  if (profile && profile.role !== "ADMIN" && (await isProfileIncomplete(profile))) {
+    redirect("/onboarding");
+  }
 
   if (!cart || !cart.items || cart.items.length === 0) {
     redirect("/cart");

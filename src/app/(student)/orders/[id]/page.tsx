@@ -1,6 +1,6 @@
 import React from "react";
-import { notFound } from "next/navigation";
-import { getCurrentProfile } from "@/services/profile";
+import { notFound, redirect } from "next/navigation";
+import { getCurrentProfile, isProfileIncomplete } from "@/services/profile";
 import { getOrderById } from "@/services/orders";
 import { Header } from "@/components/shared/header";
 import { OrderTrackingInteractive } from "@/components/student/order-tracking-interactive";
@@ -11,8 +11,14 @@ export default async function OrderTrackingPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const profile = await getCurrentProfile();
-  const order = await getOrderById(id);
+  const [profile, order] = await Promise.all([
+    getCurrentProfile(),
+    getOrderById(id),
+  ]);
+
+  if (profile && profile.role !== "ADMIN" && (await isProfileIncomplete(profile))) {
+    redirect("/onboarding");
+  }
 
   if (!order) {
     notFound();

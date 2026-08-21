@@ -1,5 +1,6 @@
 import React from "react";
-import { getCurrentProfile } from "@/services/profile";
+import { redirect } from "next/navigation";
+import { getCurrentProfile, isProfileIncomplete } from "@/services/profile";
 import { getActiveCampaign, getProducts } from "@/services/products";
 import { Header } from "@/components/shared/header";
 import { StudentHomeInteractive } from "@/components/student/student-home-interactive";
@@ -17,6 +18,10 @@ export default async function ProductsCatalogPage({
     getActiveCampaign(),
     getProducts(params.q, params.category),
   ]);
+
+  if (profile && profile.role !== "ADMIN" && (await isProfileIncomplete(profile))) {
+    redirect("/onboarding");
+  }
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex flex-col">

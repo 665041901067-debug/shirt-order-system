@@ -1,5 +1,6 @@
 import React from "react";
-import { getCurrentProfile } from "@/services/profile";
+import { redirect } from "next/navigation";
+import { getCurrentProfile, isProfileIncomplete } from "@/services/profile";
 import { getUserOrders } from "@/services/orders";
 import { Header } from "@/components/shared/header";
 import { StudentOrdersInteractive } from "@/components/student/student-orders-interactive";
@@ -9,6 +10,10 @@ export default async function OrderHistoryPage() {
     getCurrentProfile(),
     getUserOrders(),
   ]);
+
+  if (profile && profile.role !== "ADMIN" && (await isProfileIncomplete(profile))) {
+    redirect("/onboarding");
+  }
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex flex-col">

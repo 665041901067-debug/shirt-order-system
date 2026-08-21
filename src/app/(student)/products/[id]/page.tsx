@@ -1,6 +1,6 @@
 import React from "react";
-import { notFound } from "next/navigation";
-import { getCurrentProfile } from "@/services/profile";
+import { notFound, redirect } from "next/navigation";
+import { getCurrentProfile, isProfileIncomplete } from "@/services/profile";
 import { getProductById } from "@/services/products";
 import { Header } from "@/components/shared/header";
 import { ProductDetailInteractive } from "@/components/student/product-detail-interactive";
@@ -11,8 +11,14 @@ export default async function ProductDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const profile = await getCurrentProfile();
-  const product = await getProductById(id);
+  const [profile, product] = await Promise.all([
+    getCurrentProfile(),
+    getProductById(id),
+  ]);
+
+  if (profile && profile.role !== "ADMIN" && (await isProfileIncomplete(profile))) {
+    redirect("/onboarding");
+  }
 
   if (!product || !product.is_active) {
     notFound();

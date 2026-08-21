@@ -1,5 +1,6 @@
 import React from "react";
-import { getCurrentProfile } from "@/services/profile";
+import { redirect } from "next/navigation";
+import { getCurrentProfile, isProfileIncomplete } from "@/services/profile";
 import { createClient } from "@/lib/supabase/server";
 import { Header } from "@/components/shared/header";
 import { NotificationsInteractive } from "@/components/student/notifications-interactive";
@@ -7,6 +8,11 @@ import { Notification } from "@/types";
 
 export default async function NotificationsPage() {
   const profile = await getCurrentProfile();
+
+  if (profile && profile.role !== "ADMIN" && (await isProfileIncomplete(profile))) {
+    redirect("/onboarding");
+  }
+
   const supabase = await createClient();
 
   let query = supabase

@@ -47,14 +47,34 @@ export default function LoginPage() {
           });
 
           if (!signUpErr) {
-            const { error: secondLoginErr } = await supabase.auth.signInWithPassword({
+            const { data: secondLoginData, error: secondLoginErr } = await supabase.auth.signInWithPassword({
               email: cleanEmail,
               password: password,
             });
 
-            if (!secondLoginErr) {
-              toast.success("เข้าสู่ระบบสำเร็จ!");
-              router.push("/");
+            if (!secondLoginErr && secondLoginData?.user) {
+              const { data: profile } = await supabase
+                .from("profiles")
+                .select("*")
+                .eq("id", secondLoginData.user.id)
+                .single();
+
+              const cleanPhone = (profile?.phone || "").replace(/[^0-9]/g, "");
+              const isPhoneValid = cleanPhone.length === 10;
+              const isNicknameValid = profile?.nickname && profile.nickname.trim() !== "" && profile.nickname !== "-";
+              const isNameValid = profile?.first_name && profile.first_name.trim() !== "" && profile.last_name && profile.last_name.trim() !== "";
+              const needsOnboarding = !profile || !isPhoneValid || !isNicknameValid || !isNameValid;
+
+              if (needsOnboarding) {
+                toast.info("ยินดีต้อนรับเข้าสู่ระบบครั้งแรก! กรุณาตรวจสอบข้อมูลส่วนตัวและตั้งรหัสผ่านใหม่");
+                router.push("/onboarding");
+              } else if (profile.role === "ADMIN") {
+                toast.success("เข้าสู่ระบบแอดมินสำเร็จ!");
+                router.push("/admin");
+              } else {
+                toast.success("เข้าสู่ระบบสำเร็จ!");
+                router.push("/");
+              }
               router.refresh();
               return;
             }
@@ -67,9 +87,30 @@ export default function LoginPage() {
           toast.error(error.message);
         }
         setLoading(false);
-      } else {
-        toast.success("เข้าสู่ระบบสำเร็จ!");
-        router.push("/");
+      } else if (data?.user) {
+        // Check profile completion for first-time login
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", data.user.id)
+          .single();
+
+        const cleanPhone = (profile?.phone || "").replace(/[^0-9]/g, "");
+        const isPhoneValid = cleanPhone.length === 10;
+        const isNicknameValid = profile?.nickname && profile.nickname.trim() !== "" && profile.nickname !== "-";
+        const isNameValid = profile?.first_name && profile.first_name.trim() !== "" && profile.last_name && profile.last_name.trim() !== "";
+        const needsOnboarding = !profile || !isPhoneValid || !isNicknameValid || !isNameValid;
+
+        if (needsOnboarding) {
+          toast.info("ยินดีต้อนรับเข้าสู่ระบบครั้งแรก! กรุณาตรวจสอบข้อมูลส่วนตัวและตั้งรหัสผ่านใหม่");
+          router.push("/onboarding");
+        } else if (profile.role === "ADMIN") {
+          toast.success("เข้าสู่ระบบแอดมินสำเร็จ!");
+          router.push("/admin");
+        } else {
+          toast.success("เข้าสู่ระบบสำเร็จ!");
+          router.push("/");
+        }
         router.refresh();
       }
     } catch (err: any) {
