@@ -156,11 +156,11 @@ export default function LoginPage() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-slate-700">
-                  อีเมลนักศึกษา หรือ รหัสนักศึกษา *
+                  อีเมลนักศึกษา  *
                 </label>
                 <Input
                   type="text"
-                  placeholder="เช่น 66504190106-7@mail.rmutk.ac.th"
+                  placeholder="เช่น 694444532179@mail.rmutk.ac.th"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
@@ -213,7 +213,7 @@ export default function LoginPage() {
               </div>
               <ul className="list-disc list-inside space-y-1 text-[11px] text-slate-600">
                 <li>ใช้อีเมลมหาวิทยาลัย <code className="bg-slate-200 px-1 py-0.2 rounded font-mono">@mail.rmutk.ac.th</code> ที่ลงทะเบียนไว้</li>
-                <li>รหัสผ่านเริ่มต้นคือ <strong>รหัสนักศึกษา</strong> ของคุณ (เช่น 69444453217-9)</li>
+                <li>รหัสผ่านเริ่มต้นคือ <strong>รหัสนักศึกษามีขีด-</strong> ของคุณ (เช่น 69444453217-9)</li>
                 <li>เมื่อเข้าสู่ระบบครั้งแรก ระบบจะให้ตั้งรหัสผ่านใหม่เพื่อความปลอดภัย</li>
               </ul>
             </div>
