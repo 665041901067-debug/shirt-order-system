@@ -16,10 +16,23 @@ const prompt = Prompt({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://shirt-order-system.vercel.app"),
   title: "ระบบสั่งซื้อเสื้อกีฬา | สาขาวิศวกรรมคอมพิวเตอร์และระบบ IoT",
-  description: "ระบบสั่งซื้อเสื้อกีฬาสาขาวิศวกรรมคอมพิวเตอร์และระบบ IoT (CPE & IoT Sportswear Ordering System)",
-  keywords: ["CPE", "IoT", "Sportswear", "เสื้อกีฬาสาขา", "วิศวกรรมคอมพิวเตอร์"],
-  authors: [{ name: "CPE & IoT Department" }],
+  description: "ระบบสั่งซื้อเสื้อกีฬาสาขาวิศวกรรมคอมพิวเตอร์และระบบ IoT",
+  keywords: ["เสื้อกีฬาสาขา", "วิศวกรรมคอมพิวเตอร์และระบบ IoT", "ระบบสั่งซื้อเสื้อกีฬา"],
+  authors: [{ name: "สาขาวิศวกรรมคอมพิวเตอร์และระบบ IoT" }],
+  openGraph: {
+    title: "ระบบสั่งซื้อเสื้อกีฬา | สาขาวิศวกรรมคอมพิวเตอร์และระบบ IoT",
+    description: "ระบบสั่งซื้อเสื้อกีฬาสาขาวิศวกรรมคอมพิวเตอร์และระบบ IoT",
+    images: [{ url: "/images/logo.png" }],
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: "ระบบสั่งซื้อเสื้อกีฬา | สาขาวิศวกรรมคอมพิวเตอร์และระบบ IoT",
+    description: "ระบบสั่งซื้อเสื้อกีฬาสาขาวิศวกรรมคอมพิวเตอร์และระบบ IoT",
+    images: ["/images/logo.png"],
+  },
   icons: {
     icon: "/images/logo.png",
     shortcut: "/images/logo.png",
