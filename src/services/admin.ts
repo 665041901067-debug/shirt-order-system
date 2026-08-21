@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { Order, Product, Campaign, Profile, OrderStatus, PaymentStatus } from "@/types";
+import { getStatusLabel } from "@/lib/order-status";
 
 export async function getAdminDashboardMetrics() {
   const supabase = await createClient();
@@ -60,27 +61,39 @@ export async function updateOrderStatus(
   orderId: string,
   newStatus: OrderStatus,
   note?: string
-): Promise<{ success: boolean; error?: string }> {
+) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  if (!user) return { success: false, error: "ไม่พบข้อมูลผู้ใช้" };
+  if (!user) {
+    return { success: false, error: "กรุณาเข้าสู่ระบบก่อนทำรายการ" };
+  }
 
+  // Get current order for logging
   const { data: currentOrder } = await supabase
     .from("orders")
     .select("status, user_id, order_number")
     .eq("id", orderId)
     .single();
 
-  if (!currentOrder) return { success: false, error: "ไม่พบข้อมูลคำสั่งซื้อ" };
+  if (!currentOrder) {
+    return { success: false, error: "ไม่พบคำสั่งซื้อ" };
+  }
 
   // Update order status
-  const { error: updateErr } = await supabase
+  const { error: updateError } = await supabase
     .from("orders")
-    .update({ status: newStatus })
+    .update({
+      status: newStatus,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", orderId);
 
-  if (updateErr) return { success: false, error: updateErr.message };
+  if (updateError) {
+    return { success: false, error: updateError.message };
+  }
+
+  const thaiStatusLabel = getStatusLabel(newStatus);
 
   // Insert status history
   await supabase.from("order_status_history").insert({
@@ -88,14 +101,14 @@ export async function updateOrderStatus(
     old_status: currentOrder.status,
     new_status: newStatus,
     changed_by: user.id,
-    note: note || `เปลี่ยนสถานะเป็น ${newStatus}`,
+    note: note || `เปลี่ยนสถานะเป็น ${thaiStatusLabel}`,
   });
 
   // Create In-App Notification for Student
   await supabase.from("notifications").insert({
     user_id: currentOrder.user_id,
     title: `อัปเดตสถานะออเดอร์ #${currentOrder.order_number}`,
-    message: `คำสั่งซื้อของคุณถูกเปลี่ยนสถานะเป็น: ${newStatus}`,
+    message: `คำสั่งซื้อของคุณถูกเปลี่ยนสถานะเป็น: ${thaiStatusLabel}`,
     type: "ORDER_STATUS",
     link_url: `/orders/${orderId}`,
   });
