@@ -145,6 +145,7 @@ export function Header({ profile, cartCount = 0, unreadNotifications = 0 }: Head
               <Link
                 key={item.href}
                 href={item.href}
+                prefetch={true}
                 className={`relative inline-flex items-center px-3 py-2 text-xs font-bold rounded-xl transition-all ${
                   isActive
                     ? "bg-blue-50 text-blue-600 shadow-xs"
@@ -168,6 +169,7 @@ export function Header({ profile, cartCount = 0, unreadNotifications = 0 }: Head
           {!isAdmin && profile && (
             <Link
               href="/cart"
+              prefetch={true}
               className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all shadow-xs ${
                 pathname === "/cart"
                   ? "bg-blue-600 text-white border-blue-600"
@@ -246,6 +248,7 @@ export function Header({ profile, cartCount = 0, unreadNotifications = 0 }: Head
                 <Link
                   key={item.href}
                   href={item.href}
+                  prefetch={true}
                   onClick={() => setMobileMenuOpen(false)}
                   className={`flex items-center justify-between px-4 py-2.5 rounded-xl text-xs font-bold transition-colors ${
                     isActive ? "bg-blue-600 text-white shadow-xs" : "text-slate-700 hover:bg-slate-100"
