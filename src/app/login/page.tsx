@@ -41,7 +41,7 @@ export default function LoginPage() {
         .maybeSingle();
 
       if (!dbProfile) {
-        const msg = "ไม่พบอีเมลหรือรหัสนักศึกษานี้ในฐานข้อมูลของสาขา กรุณาตรวจสอบความถูกต้อง หรือติดต่อผู้ดูแลระบบ (กรรมการสาขา) เพื่อเพิ่มรายชื่อเข้าสู่ระบบ";
+        const msg = "ไม่พบอีเมลหรือรหัสนักศึกษานี้ในฐานข้อมูลของสาขา กรุณาตรวจสอบความถูกต้อง หรือติดต่อผู้ดูแลระบบเพื่อเพิ่มรายชื่อเข้าสู่ระบบ";
         setErrorMsg(msg);
         toast.error("ไม่พบบัญชีนี้ในฐานข้อมูลสาขา");
         setLoading(false);
@@ -247,7 +247,7 @@ export default function LoginPage() {
               </div>
               <ul className="list-disc list-inside space-y-1 text-[11px] text-slate-600">
                 <li>ใช้อีเมลมหาวิทยาลัย <code className="bg-slate-200 px-1 py-0.2 rounded font-mono">@mail.rmutk.ac.th</code> ที่ลงทะเบียนไว้</li>
-                <li>รหัสผ่านเริ่มต้นคือ <strong>รหัสนักศึกษา</strong> ของคุณ (เช่น 66504190106-7)</li>
+                <li>รหัสผ่านเริ่มต้นคือ <strong>รหัสนักศึกษา</strong> ของคุณ (เช่น 69444453217-9)</li>
                 <li>เมื่อเข้าสู่ระบบครั้งแรก ระบบจะให้ตั้งรหัสผ่านใหม่เพื่อความปลอดภัย</li>
               </ul>
             </div>
