@@ -120,3 +120,76 @@ export async function changeUserPassword(newPassword: string): Promise<{ success
 
   return { success: true };
 }
+
+export async function checkAndRegisterFirstTimeUser(
+  emailInput: string,
+  passwordInput: string
+): Promise<{
+  success: boolean;
+  error?: string;
+  isFirstTime?: boolean;
+  targetEmail?: string;
+}> {
+  const supabase = await createClient();
+  const cleanEmail = emailInput.trim().toLowerCase();
+  const prefix = cleanEmail.split("@")[0].trim();
+
+  // Search profiles table
+  let targetProfile: Profile | null = null;
+
+  const { data: byEmail } = await supabase
+    .from("profiles")
+    .select("*")
+    .ilike("email", cleanEmail)
+    .maybeSingle();
+
+  if (byEmail) {
+    targetProfile = byEmail as Profile;
+  } else {
+    const { data: byStudentId } = await supabase
+      .from("profiles")
+      .select("*")
+      .ilike("student_id", prefix)
+      .maybeSingle();
+
+    if (byStudentId) {
+      targetProfile = byStudentId as Profile;
+    } else {
+      const cleanPrefix = prefix.replace(/[^0-9]/g, "");
+      if (cleanPrefix.length >= 5) {
+        const { data: byCleanId } = await supabase
+          .from("profiles")
+          .select("*")
+          .ilike("student_id", `%${cleanPrefix}%`)
+          .maybeSingle();
+        if (byCleanId) targetProfile = byCleanId as Profile;
+      }
+    }
+  }
+
+  if (!targetProfile) {
+    return {
+      success: false,
+      error: "ไม่พบอีเมลหรือรหัสนักศึกษานี้ในฐานข้อมูลของสาขา กรุณาตรวจสอบความถูกต้อง หรือติดต่อผู้ดูแลระบบเพื่อเพิ่มรายชื่อเข้าสู่ระบบ",
+    };
+  }
+
+  const finalEmail = targetProfile.email && targetProfile.email.includes("@")
+    ? targetProfile.email.toLowerCase().trim()
+    : (cleanEmail.includes("@") ? cleanEmail : `${cleanEmail}@mail.rmutk.ac.th`);
+
+  const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
+    email: finalEmail,
+    password: passwordInput,
+  });
+
+  if (signUpErr) {
+    return {
+      success: false,
+      error: "รหัสผ่านไม่ถูกต้อง โปรดตรวจสอบรหัสผ่านของคุณ (หรือใช้รหัสนักศึกษาสำหรับเข้าใช้งานครั้งแรก)",
+    };
+  }
+
+  return { success: true, isFirstTime: true, targetEmail: finalEmail };
+}
+

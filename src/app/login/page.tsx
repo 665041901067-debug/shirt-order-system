@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { checkAndRegisterFirstTimeUser } from "@/services/profile";
 import { useToast } from "@/components/ui/toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,31 +29,15 @@ export default function LoginPage() {
     setErrorMsg("");
 
     const supabase = createClient();
-    const cleanEmail = email.trim().toLowerCase();
-    const emailPrefix = cleanEmail.split("@")[0].trim();
+    let cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail.includes("@")) {
+      cleanEmail = `${cleanEmail}@mail.rmutk.ac.th`;
+    }
 
     try {
-      // 1. Strict Whitelist Check in Supabase `profiles` table
-      // Verify that this email or student ID exists in the database
-      const { data: dbProfile, error: profileErr } = await supabase
-        .from("profiles")
-        .select("*")
-        .or(`email.ilike.${cleanEmail},student_id.eq.${emailPrefix},student_id.ilike.${cleanEmail}`)
-        .maybeSingle();
-
-      if (!dbProfile) {
-        const msg = "ไม่พบอีเมลหรือรหัสนักศึกษานี้ในฐานข้อมูลของสาขา กรุณาตรวจสอบความถูกต้อง หรือติดต่อผู้ดูแลระบบเพื่อเพิ่มรายชื่อเข้าสู่ระบบ";
-        setErrorMsg(msg);
-        toast.error("ไม่พบบัญชีนี้ในฐานข้อมูลสาขา");
-        setLoading(false);
-        return;
-      }
-
-      const targetEmail = (dbProfile.email || cleanEmail).toLowerCase().trim();
-
-      // 2. Attempt login
+      // 1. Direct login attempt
       const { data, error } = await supabase.auth.signInWithPassword({
-        email: targetEmail,
+        email: cleanEmail,
         password: password,
       });
 
@@ -60,56 +45,37 @@ export default function LoginPage() {
         if (error.message === "Failed to fetch" || error.message.includes("fetch")) {
           setErrorMsg("ไม่สามารถเชื่อมต่อระบบได้: กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต");
           toast.error("ไม่สามารถเชื่อมต่อระบบได้");
+          setLoading(false);
+          return;
         } else if (error.message.includes("Invalid login credentials")) {
-          // If first-time login for an existing pre-registered student
-          const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
-            email: targetEmail,
-            password: password,
-          });
+          // 2. Check if this is a pre-registered student in profiles attempting first-time login
+          const firstTimeCheck = await checkAndRegisterFirstTimeUser(cleanEmail, password);
 
-          if (!signUpErr && signUpData?.user) {
+          if (firstTimeCheck.success) {
+            const loginEmail = firstTimeCheck.targetEmail || cleanEmail;
             const { data: secondLoginData, error: secondLoginErr } = await supabase.auth.signInWithPassword({
-              email: targetEmail,
+              email: loginEmail,
               password: password,
             });
 
             if (!secondLoginErr && secondLoginData?.user) {
-              const { data: profile } = await supabase
-                .from("profiles")
-                .select("*")
-                .eq("id", secondLoginData.user.id)
-                .single();
-
-              const cleanPhone = (profile?.phone || "").replace(/[^0-9]/g, "");
-              const isPhoneValid = cleanPhone.length === 10;
-              const isNicknameValid = profile?.nickname && profile.nickname.trim() !== "" && profile.nickname !== "-";
-              const isNameValid = profile?.first_name && profile.first_name.trim() !== "" && profile.last_name && profile.last_name.trim() !== "";
-              const needsOnboarding = !profile || !isPhoneValid || !isNicknameValid || !isNameValid;
-
-              if (needsOnboarding) {
-                toast.info("ยินดีต้อนรับเข้าสู่ระบบครั้งแรก! กรุณาตรวจสอบข้อมูลส่วนตัวและตั้งรหัสผ่านใหม่");
-                router.push("/onboarding");
-              } else if (profile.role === "ADMIN") {
-                toast.success("เข้าสู่ระบบแอดมินสำเร็จ!");
-                router.push("/admin");
-              } else {
-                toast.success("เข้าสู่ระบบสำเร็จ!");
-                router.push("/");
-              }
+              toast.info("ยินดีต้อนรับเข้าสู่ระบบครั้งแรก! กรุณาตรวจสอบข้อมูลและตั้งรหัสผ่านใหม่");
+              router.push("/onboarding");
               router.refresh();
               return;
             }
           }
 
-          setErrorMsg("รหัสผ่านไม่ถูกต้อง โปรดตรวจสอบรหัสผ่านของคุณ (หรือใช้รหัสนักศึกษาสำหรับเข้าใช้งานครั้งแรก)");
-          toast.error("รหัสผ่านไม่ถูกต้อง");
+          const errMsg = firstTimeCheck.error || "อีเมลหรือรหัสผ่านไม่ถูกต้อง โปรดตรวจสอบรหัสนักศึกษาและรหัสผ่าน";
+          setErrorMsg(errMsg);
+          toast.error("เข้าสู่ระบบไม่สำเร็จ");
         } else {
           setErrorMsg(error.message);
           toast.error(error.message);
         }
         setLoading(false);
       } else if (data?.user) {
-        // Check profile completion for first-time login
+        // Logged in successfully, check profile completion
         const { data: profile } = await supabase
           .from("profiles")
           .select("*")
@@ -122,10 +88,10 @@ export default function LoginPage() {
         const isNameValid = profile?.first_name && profile.first_name.trim() !== "" && profile.last_name && profile.last_name.trim() !== "";
         const needsOnboarding = !profile || !isPhoneValid || !isNicknameValid || !isNameValid;
 
-        if (needsOnboarding) {
-          toast.info("ยินดีต้อนรับเข้าสู่ระบบครั้งแรก! กรุณาตรวจสอบข้อมูลส่วนตัวและตั้งรหัสผ่านใหม่");
+        if (needsOnboarding && profile?.role !== "ADMIN") {
+          toast.info("กรุณาตรวจสอบข้อมูลส่วนตัวและตั้งรหัสผ่านใหม่");
           router.push("/onboarding");
-        } else if (profile.role === "ADMIN") {
+        } else if (profile?.role === "ADMIN") {
           toast.success("เข้าสู่ระบบแอดมินสำเร็จ!");
           router.push("/admin");
         } else {
