@@ -22,6 +22,7 @@ import {
   FileText,
   Tag
 } from "lucide-react";
+import { extractSportType, cleanNoteWithoutSport, getSportBadgeColor } from "@/lib/sports";
 
 interface Props {
   initialCart: Cart | null;
@@ -100,35 +101,27 @@ export function CartViewInteractive({ initialCart }: Props) {
 
   if (items.length === 0) {
     return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-            <ShoppingCart className="h-6 w-6 text-blue-600" />
-            <span>ตะกร้าสินค้าของคุณ</span>
-          </h1>
-        </div>
-        <EmptyState
-          icon={ShoppingCart}
-          title="ตะกร้าสินค้าว่างเปล่า"
-          description="คุณยังไม่มีรายการสินค้าในตะกร้า เลือกชมสินค้าและเพิ่มรายการลงตะกร้าเพื่อเริ่มสั่งซื้อ"
-          action={
-            <Link href="/products">
-              <Button className="rounded-xl font-bold">
-                <span>ไปที่หน้ารายการสินค้า</span>
-                <ArrowRight className="h-4 w-4 ml-1" />
-              </Button>
-            </Link>
-          }
-        />
-      </div>
+      <EmptyState
+        icon={ShoppingCart}
+        title="ไม่มีสินค้าในตะกร้า"
+        description="คุณยังไม่ได้เลือกเสื้อกีฬาลงในตะกร้า สามารถเลือกดูสินค้าและสั่งซื้อได้ทันที"
+        action={
+          <Link href="/products">
+            <Button className="rounded-xl font-bold">
+              <span>ดูสินค้าทั้งหมด</span>
+              <ArrowRight className="h-4 w-4 ml-1" />
+            </Button>
+          </Link>
+        }
+      />
     );
   }
 
   return (
     <div className="space-y-6">
       
-      {/* Header title & Clear cart button (No subtitle) */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      {/* Header Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
             <ShoppingCart className="h-6 w-6 text-blue-600" />
@@ -156,6 +149,8 @@ export function CartViewInteractive({ initialCart }: Props) {
             const size = item.size;
             const mainImg = product?.images?.find((i) => i.image_type === "MAIN")?.image_url || product?.images?.[0]?.image_url;
             const itemTotal = calculateItemTotals(item);
+            const sportType = extractSportType(item);
+            const cleanNote = cleanNoteWithoutSport(item.note);
 
             return (
               <Card key={item.id} className="border-slate-200 bg-white rounded-2xl overflow-hidden shadow-xs">
@@ -189,6 +184,9 @@ export function CartViewInteractive({ initialCart }: Props) {
                                 (+฿{size?.price_adjustment})
                               </span>
                             )}
+                            <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md border ${getSportBadgeColor(sportType)}`}>
+                              กีฬา: {sportType}
+                            </span>
                           </div>
                         </div>
 
@@ -219,10 +217,10 @@ export function CartViewInteractive({ initialCart }: Props) {
                       </div>
 
                       {/* Item Note */}
-                      {item.note && (
+                      {cleanNote && (
                         <div className="text-xs text-amber-700 bg-amber-50 p-2 rounded-lg border border-amber-200/60 flex items-center gap-1.5">
                           <FileText className="h-3.5 w-3.5 shrink-0" />
-                          <span className="italic">หมายเหตุ: {item.note}</span>
+                          <span className="italic">หมายเหตุ: {cleanNote}</span>
                         </div>
                       )}
 

@@ -24,6 +24,7 @@ import {
   FileImage,
   Check
 } from "lucide-react";
+import { extractSportType, getSportBadgeColor } from "@/lib/sports";
 
 interface Props {
   profile: Profile | null;
@@ -353,26 +354,34 @@ export function CheckoutInteractive({ profile, cart, paymentMethods }: Props) {
               </h2>
 
               <div className="max-h-60 overflow-y-auto divide-y divide-slate-100 pr-1 space-y-2">
-                {items.map((item) => (
-                  <div key={item.id} className="pt-2 first:pt-0 flex items-center justify-between text-xs">
-                    <div>
-                      <span className="font-bold text-slate-800 block">
-                        {item.product?.name}
-                      </span>
-                      <span className="text-[11px] text-slate-500">
-                        ไซส์: {item.size?.size_name} • จำนวน: {item.quantity} ชิ้น
-                      </span>
-                      {item.custom_name && (
-                        <span className="text-[10px] text-blue-600 block">
-                          ชื่อ: {item.custom_name} {item.custom_number ? `#${item.custom_number}` : ""}
+                {items.map((item) => {
+                  const sportType = extractSportType(item);
+                  return (
+                    <div key={item.id} className="pt-2 first:pt-0 flex items-center justify-between text-xs">
+                      <div>
+                        <span className="font-bold text-slate-800 block">
+                          {item.product?.name}
                         </span>
-                      )}
+                        <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                          <span className="text-[11px] text-slate-500">
+                            ไซส์: {item.size?.size_name} • {item.quantity} ชิ้น
+                          </span>
+                          <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border ${getSportBadgeColor(sportType)}`}>
+                            {sportType}
+                          </span>
+                        </div>
+                        {item.custom_name && (
+                          <span className="text-[10px] text-blue-600 block mt-0.5">
+                            ชื่อ: {item.custom_name} {item.custom_number ? `#${item.custom_number}` : ""}
+                          </span>
+                        )}
+                      </div>
+                      <span className="font-bold text-slate-900">
+                        ฿{((Number(item.product?.base_price) + Number(item.size?.price_adjustment || 0)) * item.quantity).toLocaleString()}
+                      </span>
                     </div>
-                    <span className="font-bold text-slate-900">
-                      ฿{((Number(item.product?.base_price) + Number(item.size?.price_adjustment || 0)) * item.quantity).toLocaleString()}
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               <div className="pt-3 border-t border-slate-200 space-y-2 text-xs text-slate-600">

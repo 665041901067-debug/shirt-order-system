@@ -21,6 +21,7 @@ import {
   ShieldCheck,
   RefreshCw
 } from "lucide-react";
+import { extractSportType } from "@/lib/sports";
 
 interface Props {
   isOpen: boolean;
@@ -232,11 +233,20 @@ export function SmartPickupScannerModal({ isOpen, onClose, orders, onOrderComple
                 <p className="font-bold text-slate-900 text-xs">
                   ผู้รับ: {successOrder.profile?.first_name} {successOrder.profile?.last_name} ({successOrder.profile?.student_id})
                 </p>
-                <p className="text-slate-600 text-[11px]">
-                  รายการ: {successOrder.items?.map((i) => `${i.product_name_snapshot} (${i.size_name_snapshot})`).join(", ")}
-                </p>
-                <Badge variant="success" className="mt-1">
-                  สถานะ: รับสินค้าเสร็จสิ้น (COMPLETED)
+                <div className="text-slate-700 text-xs space-y-1 pt-1 border-t border-emerald-100">
+                  <span className="font-bold block text-slate-800">รายการเสื้อ:</span>
+                  {successOrder.items?.map((i) => (
+                    <div key={i.id} className="flex items-center gap-1.5 text-[11px] bg-slate-50 p-1.5 rounded-lg border border-slate-200">
+                      <span>• {i.product_name_snapshot} ({i.size_name_snapshot})</span>
+                      <span className="font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded">
+                        {extractSportType(i)}
+                      </span>
+                      {i.custom_name && <span className="text-blue-600">[{i.custom_name} #{i.custom_number}]</span>}
+                    </div>
+                  ))}
+                </div>
+                <Badge variant="success" className="mt-2">
+                  สถานะ: รับสินค้าเสร็จสิ้น
                 </Badge>
               </div>
 

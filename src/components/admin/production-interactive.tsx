@@ -18,8 +18,10 @@ import {
   Search, 
   FileText,
   Printer,
-  CheckCircle2
+  CheckCircle2,
+  Trophy
 } from "lucide-react";
+import { SPORT_TYPES, extractSportType, cleanNoteWithoutSport, getSportBadgeColor } from "@/lib/sports";
 
 interface Props {
   summary: {
@@ -33,6 +35,8 @@ interface Props {
 export function ProductionInteractive({ summary, orders }: Props) {
   const [search, setSearch] = useState("");
   const [selectedSizeFilter, setSelectedSizeFilter] = useState<string>("ALL");
+  const [selectedSportFilter, setSelectedSportFilter] = useState<string>("ALL");
+  const [selectedCustomFilter, setSelectedCustomFilter] = useState<string>("ALL");
 
   // Flatten items with order details for easy factory order job sheet
   const productionList: Array<{
@@ -45,12 +49,15 @@ export function ProductionInteractive({ summary, orders }: Props) {
     sizeName: string;
     customName: string;
     customNumber: string;
+    sportType: string;
     note: string;
     status: string;
   }> = [];
 
   orders.forEach((o) => {
     o.items?.forEach((item) => {
+      const sport = extractSportType(item);
+      const cleanNote = cleanNoteWithoutSport(item.note);
       productionList.push({
         id: item.id,
         orderNumber: o.order_number,
@@ -61,13 +68,18 @@ export function ProductionInteractive({ summary, orders }: Props) {
         sizeName: item.size_name_snapshot || "N/A",
         customName: item.custom_name || "-",
         customNumber: item.custom_number || "-",
-        note: item.note || "-",
+        sportType: sport,
+        note: cleanNote || "-",
         status: o.status,
       });
     });
   });
 
-  const [selectedCustomFilter, setSelectedCustomFilter] = useState<string>("ALL");
+  // Calculate Sport Breakdown Summary for distributors
+  const sportSummary = SPORT_TYPES.map((sport) => {
+    const count = productionList.filter((p) => p.sportType === sport).length;
+    return { sport, count };
+  });
 
   // Filtered Production List
   const filteredList = productionList.filter((item) => {
@@ -77,9 +89,11 @@ export function ProductionInteractive({ summary, orders }: Props) {
       item.studentId.includes(q) ||
       item.customName.toLowerCase().includes(q) ||
       item.customNumber.includes(q) ||
+      item.sportType.toLowerCase().includes(q) ||
       item.orderNumber.toLowerCase().includes(q);
 
     const matchesSize = selectedSizeFilter === "ALL" || item.sizeName === selectedSizeFilter;
+    const matchesSport = selectedSportFilter === "ALL" || item.sportType === selectedSportFilter;
 
     const hasName = item.customName && item.customName !== "-";
     const hasNumber = item.customNumber && item.customNumber !== "-";
@@ -90,29 +104,30 @@ export function ProductionInteractive({ summary, orders }: Props) {
       (selectedCustomFilter === "HAS_NUMBER" && hasNumber) ||
       (selectedCustomFilter === "PLAIN" && !hasName && !hasNumber);
 
-    return matchesSearch && matchesSize && matchesCustom;
+    return matchesSearch && matchesSize && matchesSport && matchesCustom;
   });
 
   const hasData = productionList.length > 0;
 
-  // 1-Click Excel Export formatted specifically for Screen & Sewing Factory
+  // 1-Click Excel Export formatted specifically for Screen & Sewing Factory + Distributors
   const handleExportExcel = async () => {
     const workbook = new ExcelJS.Workbook();
     workbook.creator = "CPE & IoT Sportswear System";
     workbook.created = new Date();
 
-    // Sheet 1: Factory Job Order Sheet (สำหรับส่งร้านตัดเย็บสกรีนรายชิ้น)
+    // Sheet 1: Factory Job Order Sheet (สำหรับส่งร้านตัดเย็บสกรีนและคนแจกเสื้อ)
     const jobSheet = workbook.addWorksheet("ใบสั่งงานสกรีนและตัดเย็บ");
     
     jobSheet.columns = [
       { header: "ลำดับ", key: "no", width: 8 },
+      { header: "ประเภทกีฬา", key: "sport", width: 20 },
       { header: "ไซส์เสื้อ (Size)", key: "size", width: 15 },
       { header: "ชื่อหลังเสื้อ (Custom Name)", key: "custom_name", width: 25 },
       { header: "เบอร์หลังเสื้อ (Custom Number)", key: "custom_number", width: 18 },
       { header: "ชื่อผู้สั่งซื้อ", key: "student_name", width: 25 },
       { header: "รหัสนักศึกษา", key: "student_id", width: 15 },
       { header: "เบอร์โทรศัพท์", key: "phone", width: 15 },
-      { header: "หมายเหตุงานสกรีน", key: "note", width: 25 },
+      { header: "หมายเหตุ", key: "note", width: 25 },
       { header: "เลขที่ออเดอร์", key: "order_number", width: 15 },
     ];
 
@@ -129,6 +144,7 @@ export function ProductionInteractive({ summary, orders }: Props) {
     productionList.forEach((item, index) => {
       const row = jobSheet.addRow({
         no: index + 1,
+        sport: item.sportType,
         size: item.sizeName,
         custom_name: item.customName,
         custom_number: item.customNumber,
@@ -141,6 +157,7 @@ export function ProductionInteractive({ summary, orders }: Props) {
 
       row.alignment = { vertical: "middle" };
       row.getCell("no").alignment = { horizontal: "center" };
+      row.getCell("sport").alignment = { horizontal: "center" };
       row.getCell("size").alignment = { horizontal: "center" };
       row.getCell("custom_number").alignment = { horizontal: "center" };
     });
@@ -174,7 +191,7 @@ export function ProductionInteractive({ summary, orders }: Props) {
       });
     });
 
-    // Add Total Row
+    // Add Total Row for Size Sheet
     const totalRow = summarySheet.addRow({
       size: "รวมทั้งหมด (TOTAL)",
       count: productionList.length,
@@ -182,6 +199,34 @@ export function ProductionInteractive({ summary, orders }: Props) {
       number_count: productionList.filter((p) => p.customNumber !== "-").length,
     });
     totalRow.font = { bold: true };
+
+    // Sheet 3: Sport Summary Table (สำหรับคนแจกเสื้อแยกถุงตามประเภทกีฬา)
+    const sportSheet = workbook.addWorksheet("สรุปยอดแจกเสื้อตามกีฬา");
+    sportSheet.columns = [
+      { header: "ประเภทกีฬา", key: "sport", width: 25 },
+      { header: "จำนวนเสื้อทั้งหมด (ตัว)", key: "count", width: 25 },
+    ];
+
+    const sportHeaderRow = sportSheet.getRow(1);
+    sportHeaderRow.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
+    sportHeaderRow.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FF059669" }, // Emerald Green
+    };
+
+    sportSummary.forEach((s) => {
+      sportSheet.addRow({
+        sport: s.sport,
+        count: s.count,
+      });
+    });
+
+    const sportTotalRow = sportSheet.addRow({
+      sport: "รวมทั้งหมด (TOTAL)",
+      count: productionList.length,
+    });
+    sportTotalRow.font = { bold: true };
 
     const buffer = await workbook.xlsx.writeBuffer();
     const blob = new Blob([buffer], {
@@ -197,9 +242,9 @@ export function ProductionInteractive({ summary, orders }: Props) {
 
   // CSV Export for Quick View
   const handleExportCSV = () => {
-    let csvContent = "\uFEFFลำดับ,ไซส์เสื้อ,ชื่อหลังเสื้อ,เบอร์หลังเสื้อ,ชื่อผู้สั่งซื้อ,รหัสนักศึกษา,เบอร์โทร,หมายเหตุ,เลขที่ออเดอร์\n";
+    let csvContent = "\uFEFFลำดับ,ประเภทกีฬา,ไซส์เสื้อ,ชื่อหลังเสื้อ,เบอร์หลังเสื้อ,ชื่อผู้สั่งซื้อ,รหัสนักศึกษา,เบอร์โทร,หมายเหตุ,เลขที่ออเดอร์\n";
     productionList.forEach((item, idx) => {
-      csvContent += `"${idx + 1}","${item.sizeName}","${item.customName}","${item.customNumber}","${item.studentName}","${item.studentId}","${item.phone}","${item.note}","${item.orderNumber}"\n`;
+      csvContent += `"${idx + 1}","${item.sportType}","${item.sizeName}","${item.customName}","${item.customNumber}","${item.studentName}","${item.studentId}","${item.phone}","${item.note}","${item.orderNumber}"\n`;
     });
 
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
@@ -214,24 +259,33 @@ export function ProductionInteractive({ summary, orders }: Props) {
   return (
     <div className="space-y-6">
       
-      {/* Header (No subtitle, clean Thai) */}
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
             <Factory className="h-6 w-6 text-blue-600" />
-            <span>ใบสั่งงานสกรีนและตัดเย็บ</span>
+            <span>ยอดสั่งผลิตและใบสั่งงาน</span>
           </h1>
         </div>
 
+        {/* Action Export Buttons */}
         {hasData && (
           <div className="flex items-center gap-2">
-            <Button onClick={handleExportCSV} variant="outline" className="rounded-xl shadow-xs text-xs font-bold">
-              <Download className="h-3.5 w-3.5 mr-1" />
-              <span>ดาวน์โหลด CSV</span>
+            <Button
+              onClick={handleExportCSV}
+              variant="outline"
+              className="rounded-xl font-bold text-xs bg-white text-slate-700 hover:bg-slate-50 border-slate-200"
+            >
+              <Download className="h-4 w-4 mr-1.5 text-slate-500" />
+              <span>ส่งออก CSV</span>
             </Button>
-            <Button onClick={handleExportExcel} className="rounded-xl shadow-xs bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold">
-              <FileSpreadsheet className="h-4 w-4 mr-1.5" />
-              <span>ส่งออกไฟล์ Excel สำหรับส่งร้าน (.xlsx)</span>
+
+            <Button
+              onClick={handleExportExcel}
+              className="rounded-xl font-bold text-xs bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm"
+            >
+              <FileSpreadsheet className="h-4 w-4 mr-1.5 text-white" />
+              <span>ส่งออก Excel ส่งโรงงาน & คนแจก</span>
             </Button>
           </div>
         )}
@@ -240,18 +294,49 @@ export function ProductionInteractive({ summary, orders }: Props) {
       {!hasData ? (
         <EmptyState
           icon={Factory}
-          title="ยังไม่มีข้อมูลสำหรับสรุปการผลิต"
-          description="เมื่อมีออเดอร์เข้ามาในระบบ รายการไซส์ ชื่อสกรีน และเบอร์สกรีน จะถูกรวบรวมเป็นใบสั่งงานโรงงานในหน้านี้ทันที"
+          title="ยังไม่มียอดที่ต้องสั่งผลิต"
+          description="เมื่อมีคำสั่งซื้อที่ได้รับการอนุมัติชำระเงินแล้ว ระบบจะรวบรวมยอดแยกตามไซส์ กีฬา และรายชื่อสกรีนให้อัตโนมัติ"
         />
       ) : (
         <div className="space-y-6">
           
-          {/* 1. FACTORY SIZE SUMMARY BAR */}
+          {/* 1. SPORT BREAKDOWN SUMMARY CARD (สำหรับคนแจกเสื้อ) */}
+          <Card className="border-emerald-200 bg-linear-to-br from-emerald-50/50 to-white rounded-2xl p-5 shadow-xs space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-sm text-emerald-950 flex items-center gap-2">
+                <Trophy className="h-4 w-4 text-emerald-600" />
+                <span>สรุปยอดแยกตามประเภทกีฬา (สำหรับคนแจกเสื้อ)</span>
+              </h3>
+              <Badge variant="success" className="font-bold">
+                รวม {productionList.length} ตัว
+              </Badge>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 text-center">
+              {sportSummary.map((s) => (
+                <button
+                  key={s.sport}
+                  onClick={() => setSelectedSportFilter(selectedSportFilter === s.sport ? "ALL" : s.sport)}
+                  className={`p-3 rounded-xl border text-xs font-bold transition-all ${
+                    selectedSportFilter === s.sport
+                      ? "border-emerald-600 bg-emerald-600 text-white shadow-xs ring-2 ring-emerald-300"
+                      : "border-emerald-200/80 bg-white hover:bg-emerald-50/50 text-slate-800"
+                  }`}
+                >
+                  <span className="block text-[11px] opacity-80 truncate">{s.sport}</span>
+                  <span className="text-lg font-extrabold">{s.count}</span>
+                  <span className="block text-[10px] opacity-75">ตัว</span>
+                </button>
+              ))}
+            </div>
+          </Card>
+
+          {/* 2. SIZE QUANTITY SUMMARY CARD */}
           <Card className="border-slate-200 bg-white rounded-2xl p-5 shadow-xs space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
                 <Shirt className="h-4 w-4 text-blue-600" />
-                <span>สรุปยอดผลิตรวมแยกตามไซส์</span>
+                <span>สรุปยอดผลิตรวมแยกตามไซส์ (สำหรับโรงงานตัดเย็บ)</span>
               </h3>
               <Badge variant="primary">
                 รวมทั้งหมด {productionList.length} ตัว
@@ -277,7 +362,7 @@ export function ProductionInteractive({ summary, orders }: Props) {
             </div>
           </Card>
 
-          {/* 2. SEARCH & FILTER CONTROLS */}
+          {/* 3. SEARCH & FILTER CONTROLS */}
           <div className="space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex flex-wrap items-center gap-1.5 pb-1">
@@ -308,7 +393,7 @@ export function ProductionInteractive({ summary, orders }: Props) {
 
               <div className="w-full sm:w-72">
                 <Input
-                  placeholder="ค้นหาด้วยชื่อนักศึกษา, ชื่อสกรีน, เบอร์สกรีน..."
+                  placeholder="ค้นหาชื่อผู้สั่ง, กีฬา, ชื่อสกรีน, เบอร์..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="rounded-xl text-xs"
@@ -316,41 +401,62 @@ export function ProductionInteractive({ summary, orders }: Props) {
               </div>
             </div>
 
-            {/* Custom Screen Filter Bar */}
-            <div className="flex flex-wrap items-center gap-2 bg-slate-50 p-2.5 rounded-2xl border border-slate-200/80">
-              <span className="text-xs font-bold text-slate-500 mr-1 shrink-0">ตัวกรองงานสกรีน:</span>
-              {[
-                { key: "ALL", label: "ทั้งหมด" },
-                { key: "HAS_NAME", label: "มีสกรีนชื่อ" },
-                { key: "HAS_NUMBER", label: "มีสกรีนเบอร์" },
-                { key: "PLAIN", label: "ไม่สกรีน (เสื้อเปล่า)" },
-              ].map((cf) => (
-                <button
-                  key={cf.key}
-                  onClick={() => setSelectedCustomFilter(cf.key)}
-                  className={`px-3 py-1 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
-                    selectedCustomFilter === cf.key
-                      ? "bg-blue-600 text-white shadow-xs"
-                      : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
-                  }`}
+            {/* Custom Screen & Sport Filter Bar */}
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200/80">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-xs font-bold text-slate-600 mr-1">กรองสกรีน:</span>
+                {[
+                  { key: "ALL", label: "ทั้งหมด" },
+                  { key: "HAS_NAME", label: "มีชื่อสกรีน" },
+                  { key: "HAS_NUMBER", label: "มีเบอร์สกรีน" },
+                  { key: "PLAIN", label: "เสื้อเปล่า" },
+                ].map((f) => (
+                  <button
+                    key={f.key}
+                    onClick={() => setSelectedCustomFilter(f.key)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                      selectedCustomFilter === f.key
+                        ? "bg-blue-600 text-white shadow-2xs"
+                        : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Sport Filter Dropdown */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-600">กีฬา:</span>
+                <select
+                  value={selectedSportFilter}
+                  onChange={(e) => setSelectedSportFilter(e.target.value)}
+                  className="bg-white border border-slate-200 rounded-xl px-2.5 py-1 text-xs font-bold text-slate-800"
                 >
-                  {cf.label}
-                </button>
-              ))}
+                  <option value="ALL">ทุกประเภทกีฬา</option>
+                  {SPORT_TYPES.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
 
-          {/* 3. FACTORY INDIVIDUAL JOB ORDER TABLE (Mobile Card Stack & Desktop Table) */}
-          
-          {/* Mobile Card Stack */}
-          <div className="grid grid-cols-1 gap-4 md:hidden">
+          {/* 4. PRODUCTION JOB LIST */}
+          {/* Mobile Card View */}
+          <div className="grid grid-cols-1 gap-3 md:hidden">
             {filteredList.map((item, idx) => (
               <Card key={item.id} className="border-slate-200 bg-white rounded-2xl p-4 shadow-xs space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                  <span className="text-xs font-bold text-slate-400 font-mono">ลำดับ #{idx + 1}</span>
-                  <Badge variant="primary" className="font-extrabold text-xs">
-                    ไซส์ {item.sizeName}
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-400 font-mono">#{idx + 1}</span>
+                    <Badge variant="primary" className="font-extrabold text-xs">
+                      ไซส์ {item.sizeName}
+                    </Badge>
+                  </div>
+                  <span className={`text-[11px] font-bold px-2 py-0.5 rounded border ${getSportBadgeColor(item.sportType)}`}>
+                    {item.sportType}
+                  </span>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 text-xs bg-blue-50/60 p-3 rounded-xl border border-blue-100">
@@ -395,12 +501,13 @@ export function ProductionInteractive({ summary, orders }: Props) {
                 <thead className="bg-slate-100/70 border-b border-slate-200 text-slate-800 font-bold uppercase tracking-wider">
                   <tr>
                     <th className="p-3.5 text-center">ลำดับ</th>
+                    <th className="p-3.5 text-center">ประเภทกีฬา</th>
                     <th className="p-3.5 text-center">ไซส์เสื้อ</th>
                     <th className="p-3.5">ชื่อหลังเสื้อ (Custom Name)</th>
                     <th className="p-3.5 text-center">เบอร์หลังเสื้อ</th>
                     <th className="p-3.5">ผู้สั่งซื้อ (นักศึกษา)</th>
                     <th className="p-3.5">รหัสนักศึกษา</th>
-                    <th className="p-3.5">หมายเหตุงานสกรีน</th>
+                    <th className="p-3.5">หมายเหตุ</th>
                     <th className="p-3.5 text-right">เลขที่ออเดอร์</th>
                   </tr>
                 </thead>
@@ -409,6 +516,12 @@ export function ProductionInteractive({ summary, orders }: Props) {
                     <tr key={item.id} className="hover:bg-blue-50/30 transition-colors">
                       <td className="p-3.5 text-center font-bold text-slate-400 font-mono">
                         {idx + 1}
+                      </td>
+
+                      <td className="p-3.5 text-center">
+                        <span className={`text-[11px] font-bold px-2 py-0.5 rounded border whitespace-nowrap ${getSportBadgeColor(item.sportType)}`}>
+                          {item.sportType}
+                        </span>
                       </td>
 
                       <td className="p-3.5 text-center">

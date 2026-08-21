@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 
 import { useToast } from "@/components/ui/toast";
+import { SPORT_TYPES, extractSportType, getSportBadgeColor } from "@/lib/sports";
 
 interface Props {
   initialOrders: Order[];
@@ -58,6 +59,7 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>("ALL");
   const [selectedPaymentFilter, setSelectedPaymentFilter] = useState<string>("ALL");
   const [selectedYearFilter, setSelectedYearFilter] = useState<string>("ALL");
+  const [selectedSportFilter, setSelectedSportFilter] = useState<string>("ALL");
   const [isFilterExpanded, setIsFilterExpanded] = useState(false);
 
   // Selection state for Batch Actions
@@ -128,15 +130,20 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
       selectedYearFilter === "ALL" ||
       (o.profile?.academic_year && o.profile.academic_year.includes(selectedYearFilter));
 
-    return matchesSearch && matchesStatus && matchesPayment && matchesYear;
+    const matchesSport =
+      selectedSportFilter === "ALL" ||
+      o.items?.some((item) => extractSportType(item) === selectedSportFilter);
+
+    return matchesSearch && matchesStatus && matchesPayment && matchesYear && matchesSport;
   });
 
-  const hasActiveFilters = selectedStatusFilter !== "ALL" || selectedPaymentFilter !== "ALL" || selectedYearFilter !== "ALL" || search.trim() !== "";
+  const hasActiveFilters = selectedStatusFilter !== "ALL" || selectedPaymentFilter !== "ALL" || selectedYearFilter !== "ALL" || selectedSportFilter !== "ALL" || search.trim() !== "";
 
   const handleResetFilters = () => {
     setSelectedStatusFilter("ALL");
     setSelectedPaymentFilter("ALL");
     setSelectedYearFilter("ALL");
+    setSelectedSportFilter("ALL");
     setSearch("");
   };
 
@@ -425,9 +432,9 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
           </div>
         </div>
 
-        {/* Secondary Filter Row (ช่องทางชำระเงิน & ชั้นปี) */}
+        {/* Secondary Filter Row (ช่องทางชำระเงิน, ชั้นปี, ประเภทกีฬา) */}
         {(isFilterExpanded || hasActiveFilters) && (
-          <div className="pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-3 animate-in fade-in duration-200">
+          <div className="pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-3 gap-3 animate-in fade-in duration-200">
             {/* Payment Method */}
             <div className="space-y-1">
               <span className="text-[11px] font-bold text-slate-500">ช่องทางชำระเงิน:</span>
@@ -461,6 +468,24 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
                 <option value="ปี 2">ชั้นปีที่ 2</option>
                 <option value="ปี 3">ชั้นปีที่ 3</option>
                 <option value="ปี 4">ชั้นปีที่ 4</option>
+              </select>
+            </div>
+
+            {/* Sport Type Filter */}
+            <div className="space-y-1">
+              <span className="text-[11px] font-bold text-slate-500">ประเภทกีฬา:</span>
+              <select
+                value={selectedSportFilter}
+                onChange={(e) => {
+                  setSelectedSportFilter(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800"
+              >
+                <option value="ALL">ทุกประเภทกีฬา</option>
+                {SPORT_TYPES.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
               </select>
             </div>
           </div>
@@ -586,14 +611,20 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
                     </p>
                   </div>
 
-                  <div className="bg-slate-50 p-2.5 rounded-xl space-y-1 text-xs">
+                  <div className="bg-slate-50 p-2.5 rounded-xl space-y-1.5 text-xs border border-slate-100">
                     <span className="font-bold text-slate-700 block">รายการสินค้า ({order.items?.length || 0} ชิ้น):</span>
-                    {order.items?.map((item) => (
-                      <p key={item.id} className="text-slate-600 text-[11px]">
-                        • {item.product_name_snapshot} ({item.size_name_snapshot})
-                        {item.custom_name && ` สกรีน: ${item.custom_name}`} × {item.quantity}
-                      </p>
-                    ))}
+                    {order.items?.map((item) => {
+                      const sport = extractSportType(item);
+                      return (
+                        <div key={item.id} className="flex flex-wrap items-center gap-1.5 text-slate-700 text-[11px]">
+                          <span>• {item.product_name_snapshot} ({item.size_name_snapshot}) × {item.quantity}</span>
+                          <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border ${getSportBadgeColor(sport)}`}>
+                            {sport}
+                          </span>
+                          {item.custom_name && <span className="text-blue-600 font-semibold">[{item.custom_name} #{item.custom_number}]</span>}
+                        </div>
+                      );
+                    })}
                   </div>
 
                   <div className="flex items-center justify-between pt-2 border-t border-slate-100">
@@ -691,8 +722,19 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
                           <span className="font-semibold text-slate-800 block">
                             {order.items?.length || 0} รายการ
                           </span>
-                          <div className="text-[11px] text-slate-500 line-clamp-1">
-                            {order.items?.map((i) => `${i.product_name_snapshot} (${i.size_name_snapshot})`).join(", ")}
+                          <div className="text-[11px] text-slate-500 space-y-1 mt-0.5 max-w-[260px]">
+                            {order.items?.map((i) => {
+                              const sport = extractSportType(i);
+                              return (
+                                <div key={i.id} className="flex flex-wrap items-center gap-1">
+                                  <span className="font-medium text-slate-700">{i.product_name_snapshot} ({i.size_name_snapshot})</span>
+                                  <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border ${getSportBadgeColor(sport)}`}>
+                                    {sport}
+                                  </span>
+                                  {i.custom_name && <span className="text-blue-600 font-mono text-[10px]">[{i.custom_name}]</span>}
+                                </div>
+                              );
+                            })}
                           </div>
                         </td>
 

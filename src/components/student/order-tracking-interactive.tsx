@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 
 import { ORDER_STEPS, getStatusLabel, getStatusBadgeVariant } from "@/lib/order-status";
+import { extractSportType, cleanNoteWithoutSport, getSportBadgeColor } from "@/lib/sports";
 
 interface Props {
   initialOrder: Order;
@@ -281,39 +282,46 @@ export function OrderTrackingInteractive({ initialOrder }: Props) {
               </h3>
 
               <div className="divide-y divide-slate-100 space-y-3">
-                {order.items?.map((item) => (
-                  <div key={item.id} className="pt-3 first:pt-0 flex items-start justify-between gap-4 text-xs">
-                    <div className="space-y-1">
-                      <h4 className="font-bold text-slate-900">{item.product_name_snapshot}</h4>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="secondary" size="sm">
-                          ไซส์: {item.size_name_snapshot}
-                        </Badge>
-                        <span className="text-slate-500">จำนวน {item.quantity} ตัว</span>
+                {order.items?.map((item) => {
+                  const sport = extractSportType(item);
+                  const cleanNote = cleanNoteWithoutSport(item.note);
+                  return (
+                    <div key={item.id} className="pt-3 first:pt-0 flex items-start justify-between gap-4 text-xs">
+                      <div className="space-y-1">
+                        <h4 className="font-bold text-slate-900">{item.product_name_snapshot}</h4>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant="secondary" size="sm">
+                            ไซส์: {item.size_name_snapshot}
+                          </Badge>
+                          <span className="text-slate-500">จำนวน {item.quantity} ตัว</span>
+                          <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md border ${getSportBadgeColor(sport)}`}>
+                            กีฬา: {sport}
+                          </span>
+                        </div>
+
+                        {item.custom_name && (
+                          <p className="text-[11px] text-slate-600">
+                            <strong>ชื่อหลังเสื้อ:</strong> {item.custom_name}
+                          </p>
+                        )}
+                        {item.custom_number && (
+                          <p className="text-[11px] text-blue-600 font-mono font-bold">
+                            <strong>เบอร์หลังเสื้อ:</strong> #{item.custom_number}
+                          </p>
+                        )}
+                        {cleanNote && (
+                          <p className="text-[11px] text-slate-500 italic">
+                            หมายเหตุ: {cleanNote}
+                          </p>
+                        )}
                       </div>
 
-                      {item.custom_name && (
-                        <p className="text-[11px] text-slate-600">
-                          <strong>ชื่อหลังเสื้อ:</strong> {item.custom_name}
-                        </p>
-                      )}
-                      {item.custom_number && (
-                        <p className="text-[11px] text-blue-600 font-mono font-bold">
-                          <strong>เบอร์หลังเสื้อ:</strong> #{item.custom_number}
-                        </p>
-                      )}
-                      {item.note && (
-                        <p className="text-[11px] text-slate-500 italic">
-                          หมายเหตุ: {item.note}
-                        </p>
-                      )}
+                      <div className="text-right font-extrabold text-slate-900 text-sm">
+                        ฿{Number(item.subtotal || 0).toLocaleString()}
+                      </div>
                     </div>
-
-                    <div className="text-right font-extrabold text-slate-900 text-sm">
-                      ฿{Number(item.subtotal || 0).toLocaleString()}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-xs">

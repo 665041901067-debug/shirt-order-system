@@ -27,6 +27,8 @@ import {
   Maximize2
 } from "lucide-react";
 
+import { SPORT_TYPES, SportType, buildSportNote } from "@/lib/sports";
+
 interface Props {
   product: Product;
   profile: Profile | null;
@@ -53,6 +55,7 @@ export function ProductDetailInteractive({ product, profile }: Props) {
   const allowCustomNumber = product.allow_custom_number !== false;
   const [customName, setCustomName] = useState("");
   const [customNumber, setCustomNumber] = useState("");
+  const [selectedSport, setSelectedSport] = useState<string>("ไม่ได้เล่นกีฬา");
   const [note, setNote] = useState("");
 
   // Quantity state
@@ -96,13 +99,14 @@ export function ProductDetailInteractive({ product, profile }: Props) {
     setSuccessMsg("");
 
     const optionValueIds = Object.values(selectedOptions).map((o) => o.id);
+    const combinedNote = buildSportNote(selectedSport, note);
 
     const res = await addToCart({
       product_id: product.id,
       size_id: selectedSize.id,
       custom_name: allowCustomName ? customName.trim() || undefined : undefined,
       custom_number: allowCustomNumber ? customNumber.trim() || undefined : undefined,
-      note: note.trim() || undefined,
+      note: combinedNote,
       quantity,
       option_value_ids: optionValueIds,
     });
@@ -396,13 +400,46 @@ export function ProductDetailInteractive({ product, profile }: Props) {
                     )}
                   </div>
 
+                  {/* Sport Selection */}
+                  <div className="space-y-2 pt-2 border-t border-slate-100">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
+                        ประเภทกีฬาที่ลงแข่งขัน (Sport Type)
+                      </label>
+                      <span className="text-[11px] text-slate-400 font-medium">
+                        (สำหรับแยกประเภทแจกเสื้อ)
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {SPORT_TYPES.map((sport) => {
+                        const isSportSelected = selectedSport === sport;
+                        return (
+                          <button
+                            key={sport}
+                            type="button"
+                            onClick={() => setSelectedSport(sport)}
+                            className={`flex items-center justify-between p-2.5 rounded-xl border text-xs font-bold transition-all ${
+                              isSportSelected
+                                ? "border-blue-600 bg-blue-50 text-blue-700 shadow-2xs"
+                                : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
+                            }`}
+                          >
+                            <span>{sport}</span>
+                            {isSportSelected && <Check className="h-3.5 w-3.5 text-blue-600 shrink-0" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   {/* Note Field (Order Item Note) */}
-                  <div className="space-y-1.5">
+                  <div className="space-y-1.5 pt-2">
                     <label className="text-xs font-semibold text-slate-700">
                       หมายเหตุเพิ่มเติม (Note)
                     </label>
                     <Input
-                      placeholder="เช่น ถ้าระบุสั่งให้เพื่อน สามารถใส่ชื่อเพื่อน หรือรายละเอียดเพิ่มเติมได้"
+                      placeholder="เช่น ระบุชื่อเพื่อน หรือรายละเอียดเพิ่มเติม"
                       value={note}
                       onChange={(e) => setNote(e.target.value)}
                     />

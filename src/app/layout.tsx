@@ -20,6 +20,11 @@ export const metadata: Metadata = {
   description: "ระบบสั่งซื้อเสื้อกีฬาสาขาวิศวกรรมคอมพิวเตอร์และระบบ IoT (CPE & IoT Sportswear Ordering System)",
   keywords: ["CPE", "IoT", "Sportswear", "เสื้อกีฬาสาขา", "วิศวกรรมคอมพิวเตอร์"],
   authors: [{ name: "CPE & IoT Department" }],
+  icons: {
+    icon: "/images/logo.png",
+    shortcut: "/images/logo.png",
+    apple: "/images/logo.png",
+  },
 };
 
 export const viewport: Viewport = {

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Clock, ArrowRight, ShoppingBag, Eye, Search } from "lucide-react";
 import { getStatusBadgeVariant, getStatusLabel } from "@/lib/order-status";
+import { extractSportType, getSportBadgeColor } from "@/lib/sports";
 
 interface Props {
   initialOrders: Order[];
@@ -141,7 +142,7 @@ export function StudentOrdersInteractive({ initialOrders }: Props) {
                       <Badge variant={getStatusBadgeVariant(order.status)} size="sm">
                         {getStatusLabel(order.status)}
                       </Badge>
-                      <span className="text-xs text-slate-400">
+                      <span suppressHydrationWarning className="text-xs text-slate-400 font-mono">
                         {new Date(order.created_at).toLocaleDateString("th-TH")}
                       </span>
                     </div>
@@ -153,14 +154,20 @@ export function StudentOrdersInteractive({ initialOrders }: Props) {
                         รายการสินค้า {itemCount} รายการ:
                       </p>
                       <div className="flex flex-wrap gap-2 text-xs">
-                        {order.items?.map((item) => (
-                          <span
-                            key={item.id}
-                            className="bg-slate-100 px-2.5 py-1 rounded-lg text-slate-700 font-semibold"
-                          >
-                            {item.product_name_snapshot} ({item.size_name_snapshot}) × {item.quantity}
-                          </span>
-                        ))}
+                        {order.items?.map((item) => {
+                          const sport = extractSportType(item);
+                          return (
+                            <span
+                              key={item.id}
+                              className="bg-slate-100 px-2.5 py-1 rounded-lg text-slate-700 font-semibold flex items-center gap-1.5"
+                            >
+                              <span>{item.product_name_snapshot} ({item.size_name_snapshot}) × {item.quantity}</span>
+                              <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border ${getSportBadgeColor(sport)}`}>
+                                {sport}
+                              </span>
+                            </span>
+                          );
+                        })}
                       </div>
                     </div>
 
