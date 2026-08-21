@@ -6,6 +6,18 @@ export async function updateSession(request: NextRequest) {
     request,
   });
 
+  const pathname = request.nextUrl.pathname;
+
+  // 1. Skip middleware overhead completely for static assets, images, and api routes
+  if (
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/api") ||
+    pathname.startsWith("/images") ||
+    pathname.includes(".")
+  ) {
+    return supabaseResponse;
+  }
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "placeholder-anon-key";
 
@@ -30,20 +42,10 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
+  // Fast user session check
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
-  const pathname = request.nextUrl.pathname;
-
-  // Static assets and auth routes bypassing
-  if (
-    pathname.startsWith("/_next") ||
-    pathname.startsWith("/api") ||
-    pathname.includes(".")
-  ) {
-    return supabaseResponse;
-  }
 
   // Public route: /login
   if (pathname === "/login") {
@@ -62,47 +64,18 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // If logged in, check profile completeness and role security
-  if (user) {
+  // Fast Admin Route Guard: Only query database when entering /admin routes
+  if (user && pathname.startsWith("/admin")) {
     const { data: profile } = await supabase
       .from("profiles")
-      .select("role, student_id, first_name, last_name, nickname, phone, academic_year")
+      .select("role")
       .eq("id", user.id)
       .single();
 
-    // Check complete criteria strictly:
-    // first_name, last_name, nickname, student_id, academic_year, and phone (must be 10 digits)
-    const cleanPhone = (profile?.phone || "").replace(/[^0-9]/g, "");
-    const isProfileComplete = Boolean(
-      profile?.first_name?.trim() &&
-      profile?.last_name?.trim() &&
-      profile?.nickname?.trim() &&
-      profile?.student_id?.trim() &&
-      profile?.academic_year?.trim() &&
-      cleanPhone.length === 10
-    );
-
-    // If profile is INCOMPLETE -> Force redirect to /onboarding
-    if (!isProfileComplete && pathname !== "/onboarding" && pathname !== "/login") {
+    if (profile?.role !== "ADMIN") {
       const url = request.nextUrl.clone();
-      url.pathname = "/onboarding";
+      url.pathname = "/";
       return NextResponse.redirect(url);
-    }
-
-    // If profile is ALREADY COMPLETE and user tries to visit /onboarding -> Redirect away to /
-    if (isProfileComplete && pathname === "/onboarding") {
-      const url = request.nextUrl.clone();
-      url.pathname = profile?.role === "ADMIN" ? "/admin" : "/";
-      return NextResponse.redirect(url);
-    }
-
-    // Role Security: Guard /admin/* paths from non-ADMIN users
-    if (pathname.startsWith("/admin")) {
-      if (profile?.role !== "ADMIN") {
-        const url = request.nextUrl.clone();
-        url.pathname = "/";
-        return NextResponse.redirect(url);
-      }
     }
   }
 
