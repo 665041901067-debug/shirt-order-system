@@ -70,51 +70,58 @@ export function CartViewInteractive({ initialCart }: Props) {
   const items = cart?.items || [];
 
   const handleUpdateQuantity = async (itemId: string, newQty: number) => {
-    setLoadingItemId(itemId);
-    const res = await updateCartItemQuantity(itemId, newQty);
-    if (res.success) {
-      if (newQty <= 0) {
-        setCart((prev) => prev ? { ...prev, items: prev.items.filter((i) => i.id !== itemId) } : null);
-        toast.success("นำสินค้าออกจากตะกร้าแล้ว");
-      } else {
-        setCart((prev) =>
-          prev
-            ? {
-                ...prev,
-                items: prev.items.map((i) => (i.id === itemId ? { ...i, quantity: newQty } : i)),
-              }
-            : null
-        );
-        toast.info("อัปเดตจำนวนสินค้าเรียบร้อย");
-      }
-      router.refresh();
+    const prevCart = cart;
+
+    // 1. Instant Optimistic State update (0ms)
+    if (newQty <= 0) {
+      setCart((prev) => prev ? { ...prev, items: prev.items.filter((i) => i.id !== itemId) } : null);
+      toast.success("นำสินค้าออกจากตะกร้าแล้ว");
     } else {
+      setCart((prev) =>
+        prev
+          ? {
+              ...prev,
+              items: prev.items.map((i) => (i.id === itemId ? { ...i, quantity: newQty } : i)),
+            }
+          : null
+      );
+    }
+
+    // 2. Backend update
+    const res = await updateCartItemQuantity(itemId, newQty);
+    if (!res.success) {
+      setCart(prevCart);
       toast.error(res.error || "ไม่สามารถอัปเดตจำนวนสินค้าได้");
     }
-    setLoadingItemId(null);
   };
 
   const handleRemoveItem = async (itemId: string) => {
-    setLoadingItemId(itemId);
+    const prevCart = cart;
+
+    // 1. Instant Optimistic State update (0ms)
+    setCart((prev) => prev ? { ...prev, items: prev.items.filter((i) => i.id !== itemId) } : null);
+    toast.success("นำสินค้าออกจากตะกร้าเรียบร้อยแล้ว");
+
+    // 2. Backend update
     const res = await removeCartItem(itemId);
-    if (res.success) {
-      setCart((prev) => prev ? { ...prev, items: prev.items.filter((i) => i.id !== itemId) } : null);
-      toast.success("นำสินค้าออกจากตะกร้าเรียบร้อยแล้ว");
-      router.refresh();
-    } else {
+    if (!res.success) {
+      setCart(prevCart);
       toast.error(res.error || "ไม่สามารถลบรายการได้");
     }
-    setLoadingItemId(null);
   };
 
   const handleClearCart = async () => {
     if (!cart?.id) return;
+    const prevCart = cart;
+
+    // 1. Instant Optimistic State update (0ms)
+    setCart((prev) => prev ? { ...prev, items: [] } : null);
+    toast.success("ล้างตะกร้าสินค้าเรียบร้อยแล้ว");
+
+    // 2. Backend update
     const res = await clearCart(cart.id);
-    if (res.success) {
-      setCart((prev) => prev ? { ...prev, items: [] } : null);
-      toast.success("ล้างตะกร้าสินค้าเรียบร้อยแล้ว");
-      router.refresh();
-    } else {
+    if (!res.success) {
+      setCart(prevCart);
       toast.error(res.error || "ไม่สามารถล้างตะกร้าได้");
     }
   };

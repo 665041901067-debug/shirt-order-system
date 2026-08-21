@@ -65,29 +65,28 @@ export function AdminCampaignsInteractive({ initialCampaigns }: Props) {
   });
 
   const handleStatusChange = async (id: string, newStatus: CampaignStatus) => {
+    // 1. Instant Optimistic State (0ms)
+    setCampaigns((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, status: newStatus } : c))
+    );
+
+    // 2. Backend update
     const supabase = createClient();
-    const { error } = await supabase
+    await supabase
       .from("campaigns")
       .update({ status: newStatus })
       .eq("id", id);
-
-    if (!error) {
-      setCampaigns((prev) =>
-        prev.map((c) => (c.id === id ? { ...c, status: newStatus } : c))
-      );
-      router.refresh();
-    }
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm("ต้องการลบแคมเปญนี้ใช่หรือไม่?")) return;
-    const supabase = createClient();
-    const { error } = await supabase.from("campaigns").delete().eq("id", id);
+    
+    // 1. Instant Optimistic delete (0ms)
+    setCampaigns((prev) => prev.filter((c) => c.id !== id));
 
-    if (!error) {
-      setCampaigns((prev) => prev.filter((c) => c.id !== id));
-      router.refresh();
-    }
+    // 2. Backend delete
+    const supabase = createClient();
+    await supabase.from("campaigns").delete().eq("id", id);
   };
 
   const handleCreate = async (e: React.FormEvent) => {

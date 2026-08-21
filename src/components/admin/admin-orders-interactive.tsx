@@ -175,7 +175,7 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
     );
   };
 
-  // Single Order Status Change with Strict Validation
+  // Single Order Status Change with Instant Optimistic UI (0ms feedback)
   const handleStatusChange = async (targetOrder: Order, newStatus: OrderStatus) => {
     setWarningMsg("");
 
@@ -188,81 +188,72 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
       return;
     }
 
-    setLoadingAction(targetOrder.id);
-    const res = await updateOrderStatus(targetOrder.id, newStatus);
-    setLoadingAction(null);
+    const previousStatus = targetOrder.status;
 
-    if (res.success) {
-      toast.success(`เปลี่ยนสถานะออเดอร์ #${targetOrder.order_number} เป็น "${getStatusLabel(newStatus)}" เรียบร้อยแล้ว`);
+    // 1. Instant Optimistic UI (0ms)
+    setOrders((prev) =>
+      prev.map((o) => (o.id === targetOrder.id ? { ...o, status: newStatus } : o))
+    );
+    setActiveOrderForStatusChange(null);
+    toast.success(`เปลี่ยนสถานะออเดอร์ #${targetOrder.order_number} เป็น "${getStatusLabel(newStatus)}" เรียบร้อยแล้ว`);
+
+    // 2. Backend update
+    const res = await updateOrderStatus(targetOrder.id, newStatus);
+    if (!res.success) {
       setOrders((prev) =>
-        prev.map((o) => (o.id === targetOrder.id ? { ...o, status: newStatus } : o))
+        prev.map((o) => (o.id === targetOrder.id ? { ...o, status: previousStatus } : o))
       );
-      setActiveOrderForStatusChange(null);
-      router.refresh();
+      toast.error("เกิดข้อผิดพลาดในการบันทึกสถานะ");
     }
   };
 
-  // Batch Status Change for Multiple Selected Orders
+  // Batch Status Change for Multiple Selected Orders with Instant Optimistic UI (0ms feedback)
   const handleBatchStatusChange = async () => {
     if (selectedOrderIds.length === 0) return;
 
     setWarningMsg("");
-    setLoadingAction("batch");
+    const idsToUpdate = [...selectedOrderIds];
 
-    let successCount = 0;
-
-    for (const id of selectedOrderIds) {
-      const order = orders.find((o) => o.id === id);
-      if (!order) continue;
-
-      const isPaid = order.payment?.status === "VERIFIED" || ["PAID", "ORDER_ACCEPTED", "READY_FOR_PICKUP", "COMPLETED"].includes(order.status);
-      if (["READY_FOR_PICKUP", "COMPLETED"].includes(batchTargetStatus) && !isPaid) {
-        continue;
-      }
-
-      const res = await updateOrderStatus(id, batchTargetStatus);
-      if (res.success) {
-        successCount++;
-      }
-    }
-
-    setLoadingAction(null);
+    // 1. Instant Optimistic State update (0ms)
+    setOrders((prev) =>
+      prev.map((o) => (idsToUpdate.includes(o.id) ? { ...o, status: batchTargetStatus } : o))
+    );
     setSelectedOrderIds([]);
-    toast.success(`อัปเดตสถานะสำเร็จจำนวน ${successCount} รายการ`);
-    router.refresh();
+    toast.success(`อัปเดตสถานะสำเร็จจำนวน ${idsToUpdate.length} รายการ`);
+
+    // 2. Run backend updates in parallel
+    const promises = idsToUpdate.map((id) => updateOrderStatus(id, batchTargetStatus));
+    await Promise.allSettled(promises);
   };
 
   const handleVerifyPayment = async (paymentId: string, orderId: string, newPaymentStatus: PaymentStatus) => {
-    setLoadingAction(paymentId);
-    const res = await verifyPayment(paymentId, newPaymentStatus);
-    setLoadingAction(null);
+    const targetOrderStatus: OrderStatus = newPaymentStatus === "VERIFIED" ? "ORDER_ACCEPTED" : "CANCELLED";
+    const previousOrder = orders.find(o => o.id === orderId);
 
-    if (res.success) {
-      const targetOrderStatus: OrderStatus = newPaymentStatus === "VERIFIED" ? "ORDER_ACCEPTED" : "CANCELLED";
+    // 1. Instant Optimistic update
+    setOrders((prev) =>
+      prev.map((o) => {
+        if (o.id === orderId) {
+          return {
+            ...o,
+            status: targetOrderStatus,
+            payment: o.payment ? { ...o.payment, status: newPaymentStatus } : undefined,
+          };
+        }
+        return o;
+      })
+    );
+    setActiveOrderForSlip(null);
+    setIsEditingSlipStatus(false);
 
-      if (newPaymentStatus === "VERIFIED") {
-        toast.success("อนุมัติการชำระเงินเรียบร้อยแล้ว!");
-      } else {
-        toast.error("ปฏิเสธสลิปการชำระเงินเรียบร้อยแล้ว");
-      }
-
-      setOrders((prev) =>
-        prev.map((o) => {
-          if (o.id === orderId) {
-            return {
-              ...o,
-              status: targetOrderStatus,
-              payment: o.payment ? { ...o.payment, status: newPaymentStatus } : undefined,
-            };
-          }
-          return o;
-        })
-      );
-
-      setActiveOrderForSlip(null);
-      setIsEditingSlipStatus(false);
-      router.refresh();
+    if (newPaymentStatus === "VERIFIED") {
+      toast.success("อนุมัติการชำระเงินเรียบร้อยแล้ว!");
+    } else {
+      toast.error("ปฏิเสธสลิปการชำระเงินเรียบร้อยแล้ว");
     }
+
+    // 2. Backend update
+    await verifyPayment(paymentId, newPaymentStatus);
   };
 
   return (

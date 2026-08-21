@@ -246,17 +246,21 @@ export function AdminUsersInteractive({ initialUsers }: Props) {
 
   // Role Toggle
   const handleRoleChange = async (userId: string, newRole: UserRole) => {
-    setLoadingId(userId);
-    const res = await updateUserDetails(userId, { role: newRole });
-    setLoadingId(null);
+    const prevUser = users.find((u) => u.id === userId);
+    const prevRole = prevUser?.role || "STUDENT";
 
-    if (res.success) {
+    // 1. Instant Optimistic state update (0ms)
+    setUsers((prev) =>
+      prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u))
+    );
+    toast.success(`เปลี่ยนสิทธิ์เป็น ${newRole === "ADMIN" ? "ผู้ดูแลระบบ" : "นักศึกษา"} เรียบร้อยแล้ว`);
+
+    // 2. Backend update
+    const res = await updateUserDetails(userId, { role: newRole });
+    if (!res.success) {
       setUsers((prev) =>
-        prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u))
+        prev.map((u) => (u.id === userId ? { ...u, role: prevRole } : u))
       );
-      toast.success(`เปลี่ยนสิทธิ์เป็น ${newRole === "ADMIN" ? "ผู้ดูแลระบบ" : "นักศึกษา"} เรียบร้อยแล้ว`);
-      router.refresh();
-    } else {
       toast.error(res.error || "เกิดข้อผิดพลาดในการเปลี่ยนสิทธิ์");
     }
   };
@@ -373,34 +377,36 @@ export function AdminUsersInteractive({ initialUsers }: Props) {
 
   // Soft Delete
   const handleSoftDelete = async (userId: string) => {
-    setLoadingId(userId);
-    const res = await softDeleteUser(userId);
-    setLoadingId(null);
+    // 1. Instant Optimistic state update (0ms)
+    setUsers((prev) =>
+      prev.map((u) => (u.id === userId ? { ...u, is_deleted: true } : u))
+    );
+    toast.success("ย้ายผู้ใช้ไปยังถังขยะเรียบร้อยแล้ว");
 
-    if (res.success) {
+    // 2. Backend update
+    const res = await softDeleteUser(userId);
+    if (!res.success) {
       setUsers((prev) =>
-        prev.map((u) => (u.id === userId ? { ...u, is_deleted: true } : u))
+        prev.map((u) => (u.id === userId ? { ...u, is_deleted: false } : u))
       );
-      toast.success("ย้ายผู้ใช้ไปยังถังขยะเรียบร้อยแล้ว");
-      router.refresh();
-    } else {
       toast.error(res.error || "เกิดข้อผิดพลาดในการลบผู้ใช้");
     }
   };
 
   // Restore Soft Deleted User
   const handleRestore = async (userId: string) => {
-    setLoadingId(userId);
-    const res = await restoreUser(userId);
-    setLoadingId(null);
+    // 1. Instant Optimistic state update (0ms)
+    setUsers((prev) =>
+      prev.map((u) => (u.id === userId ? { ...u, is_deleted: false } : u))
+    );
+    toast.success("กู้คืนบัญชีผู้ใช้เรียบร้อยแล้ว!");
 
-    if (res.success) {
+    // 2. Backend update
+    const res = await restoreUser(userId);
+    if (!res.success) {
       setUsers((prev) =>
-        prev.map((u) => (u.id === userId ? { ...u, is_deleted: false } : u))
+        prev.map((u) => (u.id === userId ? { ...u, is_deleted: true } : u))
       );
-      toast.success("กู้คืนบัญชีผู้ใช้เรียบร้อยแล้ว!");
-      router.refresh();
-    } else {
       toast.error(res.error || "เกิดข้อผิดพลาดในการกู้คืน");
     }
   };

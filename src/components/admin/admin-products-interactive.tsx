@@ -145,29 +145,28 @@ export function AdminProductsInteractive({ initialProducts }: Props) {
   };
 
   const handleToggleProductStatus = async (productId: string, currentStatus: boolean) => {
+    // 1. Instant Optimistic state update (0ms)
+    setProducts((prev) =>
+      prev.map((p) => (p.id === productId ? { ...p, is_active: !currentStatus } : p))
+    );
+
+    // 2. Backend update
     const supabase = createClient();
-    const { error } = await supabase
+    await supabase
       .from("products")
       .update({ is_active: !currentStatus })
       .eq("id", productId);
-
-    if (!error) {
-      setProducts((prev) =>
-        prev.map((p) => (p.id === productId ? { ...p, is_active: !currentStatus } : p))
-      );
-      router.refresh();
-    }
   };
 
   const handleDeleteProduct = async (productId: string) => {
     if (!confirm("คุณแน่ใจหรือไม่ว่าต้องการลบสินค้านี้?")) return;
-    const supabase = createClient();
-    const { error } = await supabase.from("products").delete().eq("id", productId);
+    
+    // 1. Instant Optimistic state update (0ms)
+    setProducts((prev) => prev.filter((p) => p.id !== productId));
 
-    if (!error) {
-      setProducts((prev) => prev.filter((p) => p.id !== productId));
-      router.refresh();
-    }
+    // 2. Backend delete
+    const supabase = createClient();
+    await supabase.from("products").delete().eq("id", productId);
   };
 
   const handleAddSize = () => {

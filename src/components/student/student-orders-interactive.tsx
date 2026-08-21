@@ -150,7 +150,7 @@ export function StudentOrdersInteractive({ initialOrders }: Props) {
           title="ไม่พบรายการคำสั่งซื้อ"
           description="ยังไม่มีประวัติการสั่งซื้อที่ตรงกับเงื่อนไขการค้นหา"
           action={
-            <Link href="/products">
+            <Link href="/products" prefetch={true}>
               <Button className="rounded-xl font-bold bg-blue-600 hover:bg-blue-500 text-white">
                 <span>เลือกชมสินค้า</span>
                 <ArrowRight className="h-4 w-4 ml-1" />
@@ -222,7 +222,7 @@ export function StudentOrdersInteractive({ initialOrders }: Props) {
                         </span>
                       </div>
 
-                      <Link href={`/orders/${order.id}`}>
+                      <Link href={`/orders/${order.id}`} prefetch={true}>
                         <Button size="sm" className="rounded-xl font-bold bg-blue-600 hover:bg-blue-500 text-white">
                           <Eye className="h-3.5 w-3.5 mr-1" />
                           <span>ติดตามสถานะ</span>

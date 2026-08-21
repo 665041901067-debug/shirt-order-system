@@ -95,32 +95,30 @@ export async function updateOrderStatus(
 
   const thaiStatusLabel = getStatusLabel(newStatus);
 
-  // Insert status history
-  await supabase.from("order_status_history").insert({
-    order_id: orderId,
-    old_status: currentOrder.status,
-    new_status: newStatus,
-    changed_by: user.id,
-    note: note || `เปลี่ยนสถานะเป็น ${thaiStatusLabel}`,
-  });
-
-  // Create In-App Notification for Student
-  await supabase.from("notifications").insert({
-    user_id: currentOrder.user_id,
-    title: `อัปเดตสถานะออเดอร์ #${currentOrder.order_number}`,
-    message: `คำสั่งซื้อของคุณถูกเปลี่ยนสถานะเป็น: ${thaiStatusLabel}`,
-    type: "ORDER_STATUS",
-    link_url: `/orders/${orderId}`,
-  });
-
-  // Audit log
-  await supabase.from("audit_logs").insert({
-    user_id: user.id,
-    action: "UPDATE_ORDER_STATUS",
-    entity_type: "orders",
-    entity_id: orderId,
-    metadata: { old_status: currentOrder.status, new_status: newStatus },
-  });
+  // Parallel background tasks: history, notification, audit log
+  Promise.allSettled([
+    supabase.from("order_status_history").insert({
+      order_id: orderId,
+      old_status: currentOrder.status,
+      new_status: newStatus,
+      changed_by: user.id,
+      note: note || `เปลี่ยนสถานะเป็น ${thaiStatusLabel}`,
+    }),
+    supabase.from("notifications").insert({
+      user_id: currentOrder.user_id,
+      title: `อัปเดตสถานะออเดอร์ #${currentOrder.order_number}`,
+      message: `คำสั่งซื้อของคุณถูกเปลี่ยนสถานะเป็น: ${thaiStatusLabel}`,
+      type: "ORDER_STATUS",
+      link_url: `/orders/${orderId}`,
+    }),
+    supabase.from("audit_logs").insert({
+      user_id: user.id,
+      action: "UPDATE_ORDER_STATUS",
+      entity_type: "orders",
+      entity_id: orderId,
+      metadata: { old_status: currentOrder.status, new_status: newStatus },
+    }),
+  ]).catch(() => {});
 
   return { success: true };
 }
