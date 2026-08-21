@@ -257,7 +257,7 @@ export function StudentHomeInteractive({ initialCampaign, initialProducts }: Pro
                       </span>
                     </div>
 
-                    <Link href={`/products/${product.id}`}>
+                    <Link href={`/products/${product.id}`} prefetch={true}>
                       <Button className="rounded-xl font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-md">
                         <span>สั่งซื้อ</span>
                         <ArrowRight className="h-4 w-4 ml-1" />

@@ -337,7 +337,7 @@ export function OrderTrackingInteractive({ initialOrder }: Props) {
         {/* Right Column: QR Pickup Code & Slip Upload */}
         <div className="lg:col-span-5 space-y-4">
           
-          {/* 1. QR Code for Pickup (Always ready for fast scanning at distribution) */}
+          {/* 1. QR Code for Pickup (Optimized for instant camera scan) */}
           <Card className="border-slate-200 bg-white rounded-2xl shadow-xs text-center">
             <CardContent className="p-6 space-y-3">
               <h3 className="font-bold text-sm text-slate-900 flex items-center justify-center gap-2">
@@ -345,14 +345,20 @@ export function OrderTrackingInteractive({ initialOrder }: Props) {
                 <span>คิวอาร์โค้ดสำหรับรับเสื้อ</span>
               </h3>
 
-              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 inline-block shadow-inner">
-                <QRCodeSVG value={`ORDER:${order.order_number}`} size={160} level="H" />
+              <div className="bg-white p-3 rounded-2xl border-2 border-slate-100 inline-block shadow-sm">
+                <QRCodeSVG
+                  value={`ORDER:${order.order_number}`}
+                  size={180}
+                  level="M"
+                  includeMargin={true}
+                  className="rounded-lg"
+                />
               </div>
 
               <p className="text-xs font-mono font-extrabold text-blue-600">
                 #{order.order_number}
               </p>
-              <p className="text-[11px] text-slate-400 max-w-xs mx-auto">
+              <p className="text-[11px] text-slate-500 max-w-xs mx-auto">
                 แสดงคิวอาร์โค้ดนี้ให้เจ้าหน้าที่สแกนเมื่อถึงวันนัดรับเสื้อประจำสาขา
               </p>
             </CardContent>

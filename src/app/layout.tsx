@@ -49,9 +49,7 @@ export const viewport: Viewport = {
   themeColor: "#2563EB",
 };
 
-import { Suspense } from "react";
 import { ToastProvider } from "@/components/ui/toast";
-import { NavigationProgressBar } from "@/components/shared/navigation-progress";
 
 export default function RootLayout({
   children,
@@ -60,10 +58,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="th" className={`${inter.variable} ${prompt.variable}`}>
-      <body className="bg-[#F8FAFC] text-[#0F172A] antialiased selection:bg-blue-100 selection:text-blue-700">
-        <Suspense fallback={null}>
-          <NavigationProgressBar />
-        </Suspense>
+      <body className="bg-[#F8FAFC] text-[#0F172A] antialiased selection:bg-blue-100 selection:text-blue-700 min-h-screen">
         <ToastProvider>
           {children}
         </ToastProvider>

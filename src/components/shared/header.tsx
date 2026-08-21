@@ -11,7 +11,16 @@ import {
   LogOut, 
   Menu,
   X,
-  ShoppingCart
+  ShoppingCart,
+  Clock,
+  Bell,
+  User,
+  ShoppingBag,
+  Layers,
+  Factory,
+  CreditCard,
+  Users,
+  Settings
 } from "lucide-react";
 
 interface HeaderProps {
@@ -24,6 +33,7 @@ interface NavItem {
   href: string;
   label: string;
   badge?: number;
+  icon?: any;
 }
 
 export function Header({ profile, cartCount = 0, unreadNotifications = 0 }: HeaderProps) {
@@ -32,6 +42,7 @@ export function Header({ profile, cartCount = 0, unreadNotifications = 0 }: Head
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [liveCartCount, setLiveCartCount] = useState(cartCount);
   const [liveUnreadCount, setLiveUnreadCount] = useState(unreadNotifications);
+  const [liveOrdersCount, setLiveOrdersCount] = useState(0);
 
   const isAdmin = profile?.role === "ADMIN";
 
@@ -44,7 +55,7 @@ export function Header({ profile, cartCount = 0, unreadNotifications = 0 }: Head
     setLiveUnreadCount(unreadNotifications);
   }, [unreadNotifications]);
 
-  // Realtime Live Cart Count & Notifications Listener
+  // Realtime Live Cart Count, Orders Count & Notifications Listener
   useEffect(() => {
     if (!profile) return;
 
@@ -67,6 +78,18 @@ export function Header({ profile, cartCount = 0, unreadNotifications = 0 }: Head
       } catch (e) {}
     };
 
+    const fetchLiveOrdersCount = async () => {
+      if (isAdmin) return;
+      try {
+        const { count } = await supabase
+          .from("orders")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", profile.id);
+
+        setLiveOrdersCount(count || 0);
+      } catch (e) {}
+    };
+
     const fetchLiveNotificationsCount = async () => {
       try {
         const { count } = await supabase
@@ -79,7 +102,10 @@ export function Header({ profile, cartCount = 0, unreadNotifications = 0 }: Head
       } catch (e) {}
     };
 
-    // Listen for realtime cart and notification changes
+    // Initial fetch for orders count
+    fetchLiveOrdersCount();
+
+    // Listen for realtime changes across cart, orders, and notifications
     const channel = supabase
       .channel(`live-header-sync-${profile.id}`)
       .on(
@@ -87,6 +113,13 @@ export function Header({ profile, cartCount = 0, unreadNotifications = 0 }: Head
         { event: "*", schema: "public", table: "cart_items" },
         () => {
           fetchLiveCartCount();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "orders" },
+        () => {
+          fetchLiveOrdersCount();
         }
       )
       .on(
@@ -113,7 +146,7 @@ export function Header({ profile, cartCount = 0, unreadNotifications = 0 }: Head
   const studentNavItems: NavItem[] = [
     { href: "/", label: "หน้าแรก" },
     { href: "/products", label: "สินค้าทั้งหมด" },
-    { href: "/orders", label: "คำสั่งซื้อของฉัน" },
+    { href: "/orders", label: "คำสั่งซื้อของฉัน", badge: liveOrdersCount },
     { href: "/cart", label: "ตะกร้าสินค้า", badge: liveCartCount },
     { href: "/notifications", label: "แจ้งเตือน", badge: liveUnreadCount },
     { href: "/profile", label: "ข้อมูลส่วนตัว" },
@@ -132,7 +165,7 @@ export function Header({ profile, cartCount = 0, unreadNotifications = 0 }: Head
   const navItems: NavItem[] = isAdmin ? adminNavItems : studentNavItems;
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-slate-200/80 bg-white/95 backdrop-blur-md">
+    <header className="sticky top-0 z-50 w-full border-b border-slate-200/90 bg-white/95 backdrop-blur-md shadow-xs transition-all">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-3 sm:px-6 lg:px-8 gap-2">
         
         {/* Logo & Logged-In User Brand */}
@@ -162,7 +195,7 @@ export function Header({ profile, cartCount = 0, unreadNotifications = 0 }: Head
           </div>
         </Link>
 
-        {/* Desktop Navigation Links (Pure, Clean Text Tabs) */}
+        {/* Desktop Navigation Links (Pure, Clean Text Tabs with Exact Number Badges) */}
         <nav className="hidden lg:flex items-center gap-1">
           {navItems.map((item) => {
             const isActive = pathname === item.href || (item.href !== "/" && item.href !== "/admin" && pathname.startsWith(item.href));
@@ -179,7 +212,9 @@ export function Header({ profile, cartCount = 0, unreadNotifications = 0 }: Head
               >
                 <span>{item.label}</span>
                 {item.badge !== undefined && item.badge > 0 && (
-                  <span className="ml-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-bold text-white">
+                  <span className={`ml-1.5 flex h-4.5 min-w-[18px] items-center justify-center rounded-full px-1.5 text-[10px] font-black leading-none ${
+                    isActive ? "bg-blue-600 text-white" : "bg-blue-100 text-blue-700 font-bold"
+                  }`}>
                     {item.badge}
                   </span>
                 )}
@@ -190,7 +225,7 @@ export function Header({ profile, cartCount = 0, unreadNotifications = 0 }: Head
 
         {/* Right Actions: Cart Shortcut + Menu / Logout */}
         <div className="flex items-center gap-2 shrink-0">
-          {/* Direct Cart Button on Header for Students (Always visible on mobile & desktop) */}
+          {/* Direct Cart Button on Header for Students (Always sticky & visible on mobile & desktop) */}
           {!isAdmin && profile && (
             <Link
               href="/cart"
@@ -241,15 +276,19 @@ export function Header({ profile, cartCount = 0, unreadNotifications = 0 }: Head
                 <Menu className="h-4 w-4 text-slate-600" />
               )}
               <span>เมนู</span>
+              {/* Total notification indicator on hamburger */}
+              {(liveUnreadCount > 0 || liveOrdersCount > 0) && !mobileMenuOpen && (
+                <span className="h-2 w-2 rounded-full bg-blue-600 animate-ping" />
+              )}
             </button>
           </div>
         </div>
 
       </div>
 
-      {/* Mobile Menu Overlay */}
+      {/* Mobile Menu Overlay (Sticky below Header) */}
       {mobileMenuOpen && (
-        <div className="lg:hidden border-t border-slate-200 bg-white px-4 pt-3 pb-6 space-y-2 shadow-xl animate-in slide-in-from-top-2">
+        <div className="lg:hidden border-t border-slate-200 bg-white/98 backdrop-blur-xl px-4 pt-3 pb-6 space-y-2 shadow-2xl animate-in slide-in-from-top-2">
           {profile && (
             <div className="p-3 mb-2 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
               <div className="min-w-0 pr-2">
@@ -281,22 +320,24 @@ export function Header({ profile, cartCount = 0, unreadNotifications = 0 }: Head
                 >
                   <span>{item.label}</span>
                   {item.badge !== undefined && item.badge > 0 && (
-                    <Badge variant={isActive ? "secondary" : "primary"} size="sm">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                      isActive ? "bg-white text-blue-600" : "bg-blue-100 text-blue-700"
+                    }`}>
                       {item.badge}
-                    </Badge>
+                    </span>
                   )}
                 </Link>
               );
             })}
           </div>
 
-          <div className="pt-2 border-t border-slate-100">
+          <div className="pt-3 border-t border-slate-100">
             <button
               onClick={handleLogout}
-              className="flex w-full items-center justify-between px-4 py-2.5 text-xs font-bold text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+              className="w-full flex items-center justify-center gap-2 py-2.5 text-xs font-bold text-red-600 hover:bg-red-50 rounded-xl transition-colors"
             >
-              <span>ออกจากระบบ</span>
               <LogOut className="h-4 w-4" />
+              <span>ออกจากระบบ</span>
             </button>
           </div>
         </div>

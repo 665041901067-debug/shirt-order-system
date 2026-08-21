@@ -40,6 +40,7 @@ export function SmartPickupScannerModal({ isOpen, onClose, orders, onOrderComple
   const [submitting, setSubmitting] = useState(false);
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  const isProcessingRef = useRef(false);
   const readerElementId = "reader-camera-view";
 
   // Play audio chime when QR scan succeeds
@@ -62,7 +63,28 @@ export function SmartPickupScannerModal({ isOpen, onClose, orders, onOrderComple
     }
   };
 
+  const stopCamera = async () => {
+    if (scannerRef.current && scannerRef.current.isScanning) {
+      try {
+        await scannerRef.current.stop();
+        scannerRef.current.clear();
+      } catch (e) {
+        // ignore cleanup error
+      }
+    }
+    setCameraActive(false);
+  };
+
   const handleVerifyAndComplete = async (targetOrder: Order) => {
+    // Check if already completed
+    if (targetOrder.status === "COMPLETED") {
+      const msg = `ออเดอร์ #${targetOrder.order_number} ได้รับสินค้าไปเรียบร้อยแล้ว`;
+      setErrorMsg(msg);
+      toast.info(msg);
+      isProcessingRef.current = false;
+      return;
+    }
+
     // Check if payment is verified
     const isPaid =
       targetOrder.payment?.status === "VERIFIED" ||
@@ -72,11 +94,15 @@ export function SmartPickupScannerModal({ isOpen, onClose, orders, onOrderComple
       const msg = `ออเดอร์ #${targetOrder.order_number} ยังไม่ได้ผ่านการอนุมัติชำระเงิน กรุณาอนุมัติสลิปก่อนส่งมอบสินค้า`;
       setErrorMsg(msg);
       toast.warning(msg);
+      isProcessingRef.current = false;
       return;
     }
 
     setSubmitting(true);
     setErrorMsg("");
+
+    // Stop camera immediately to freeze scan
+    await stopCamera();
 
     const res = await updateOrderStatus(targetOrder.id, "COMPLETED");
     setSubmitting(false);
@@ -86,17 +112,18 @@ export function SmartPickupScannerModal({ isOpen, onClose, orders, onOrderComple
       setSuccessOrder(targetOrder);
       toast.success(`รับสินค้าเสร็จสิ้น! ออเดอร์ #${targetOrder.order_number}`);
       onOrderCompleted(targetOrder.id);
-      stopCamera();
     } else {
       setErrorMsg(res.error || "ไม่สามารถเปลี่ยนสถานะรับสินค้าได้");
+      isProcessingRef.current = false;
     }
   };
 
   const processDecodedText = (decodedText: string) => {
-    if (!decodedText) return;
+    if (!decodedText || isProcessingRef.current) return;
+    isProcessingRef.current = true;
 
     const raw = decodedText.trim().toLowerCase();
-    const cleanQ = raw.replace(/^#/, "").trim();
+    const cleanQ = raw.replace(/^order:/i, "").replace(/^#/, "").trim();
     
     // Find order
     const match = orders.find((o) => {
@@ -127,12 +154,17 @@ export function SmartPickupScannerModal({ isOpen, onClose, orders, onOrderComple
       handleVerifyAndComplete(match);
     } else {
       setErrorMsg(`สแกนพบข้อมูล "${decodedText}" แต่ไม่พบออเดอร์ตรงกันในระบบ`);
+      // Unlock after 1.5 seconds if not matched
+      setTimeout(() => {
+        isProcessingRef.current = false;
+      }, 1500);
     }
   };
 
-  // Start Live Camera Reader
+  // Start Live Camera Reader with wide responsive viewport
   const startCamera = async () => {
     try {
+      isProcessingRef.current = false;
       setCameraError("");
       setCameraActive(true);
 
@@ -142,8 +174,12 @@ export function SmartPickupScannerModal({ isOpen, onClose, orders, onOrderComple
       await html5Qrcode.start(
         { facingMode: "environment" },
         {
-          fps: 10,
-          qrbox: { width: 250, height: 250 },
+          fps: 12,
+          qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+            const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+            const edge = Math.floor(minEdge * 0.85);
+            return { width: Math.max(260, edge), height: Math.max(260, edge) };
+          },
         },
         (decodedText) => {
           processDecodedText(decodedText);
@@ -158,21 +194,8 @@ export function SmartPickupScannerModal({ isOpen, onClose, orders, onOrderComple
     }
   };
 
-  const stopCamera = async () => {
-    if (scannerRef.current && scannerRef.current.isScanning) {
-      try {
-        await scannerRef.current.stop();
-        scannerRef.current.clear();
-      } catch (e) {
-        // ignore cleanup error
-      }
-    }
-    setCameraActive(false);
-  };
-
   useEffect(() => {
     if (isOpen && !successOrder) {
-      // Auto start camera when modal opens
       const timer = setTimeout(() => {
         startCamera();
       }, 300);
@@ -203,18 +226,19 @@ export function SmartPickupScannerModal({ isOpen, onClose, orders, onOrderComple
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in duration-200">
-      <Card className="w-full max-w-lg bg-white rounded-3xl overflow-hidden shadow-2xl space-y-4">
+      <Card className="w-full max-w-xl bg-white rounded-3xl overflow-hidden shadow-2xl space-y-4">
         <CardContent className="p-6 space-y-4">
           
           {/* Header */}
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
               <Camera className="h-5 w-5 text-blue-600 animate-pulse" />
-              <span>สแกนกล้อง QR Code รับสินค้า (Live Camera Scanner)</span>
+              <span>สแกน QR Code รับสินค้า (Live Camera Scanner)</span>
             </h3>
             <button
               onClick={handleModalClose}
               className="text-slate-400 hover:text-slate-700 font-bold p-1 rounded-lg"
+              aria-label="ปิด"
             >
               <X className="h-5 w-5" />
             </button>
@@ -255,9 +279,10 @@ export function SmartPickupScannerModal({ isOpen, onClose, orders, onOrderComple
                   onClick={() => {
                     setSuccessOrder(null);
                     setQuery("");
+                    isProcessingRef.current = false;
                     startCamera();
                   }}
-                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold"
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold h-11"
                 >
                   <RefreshCw className="h-4 w-4 mr-1.5" />
                   <span>เปิดกล้องสแกนออเดอร์ถัดไป</span>
@@ -267,8 +292,8 @@ export function SmartPickupScannerModal({ isOpen, onClose, orders, onOrderComple
           ) : (
             <div className="space-y-4">
               
-              {/* LIVE CAMERA VIEW CONTAINER */}
-              <div className="relative aspect-square w-full bg-slate-950 rounded-3xl overflow-hidden shadow-inner border-2 border-slate-800 flex items-center justify-center">
+              {/* LIVE CAMERA VIEW CONTAINER (Expanded Viewport) */}
+              <div className="relative w-full h-[320px] sm:h-[380px] bg-slate-950 rounded-3xl overflow-hidden shadow-inner border-2 border-slate-800 flex items-center justify-center">
                 <div id={readerElementId} className="w-full h-full object-cover" />
 
                 {!cameraActive && (
@@ -306,7 +331,7 @@ export function SmartPickupScannerModal({ isOpen, onClose, orders, onOrderComple
                   <Button
                     type="submit"
                     isLoading={submitting}
-                    className="h-10 text-xs rounded-xl bg-blue-600 text-white whitespace-nowrap px-4"
+                    className="h-10 text-xs rounded-xl bg-blue-600 text-white whitespace-nowrap px-4 font-bold"
                   >
                     <ShieldCheck className="h-4 w-4 mr-1" />
                     <span>ยืนยัน</span>
