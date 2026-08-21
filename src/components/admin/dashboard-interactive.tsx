@@ -80,7 +80,7 @@ export function DashboardInteractive({ initialMetrics, orders: initialOrders }: 
     };
 
     const channel = supabase
-      .channel("admin-dashboard-realtime")
+      .channel(`admin-dashboard-live-${Date.now()}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "orders" },
@@ -95,10 +95,20 @@ export function DashboardInteractive({ initialMetrics, orders: initialOrders }: 
           fetchLatestData();
         }
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "order_items" },
+        () => {
+          fetchLatestData();
+        }
+      )
       .subscribe();
+
+    window.addEventListener("app:order-changed", fetchLatestData);
 
     return () => {
       supabase.removeChannel(channel);
+      window.removeEventListener("app:order-changed", fetchLatestData);
     };
   }, []);
 

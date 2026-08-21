@@ -153,6 +153,10 @@ export function CheckoutInteractive({ profile, cart, paymentMethods }: Props) {
       toast.error(res.error || "เกิดข้อผิดพลาดในการยืนยันคำสั่งซื้อ");
       setErrorMsg(res.error || "เกิดข้อผิดพลาดในการยืนยันคำสั่งซื้อ");
     } else {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("app:order-changed"));
+        window.dispatchEvent(new CustomEvent("app:cart-changed"));
+      }
       toast.success("สั่งซื้อเสื้อสำเร็จเรียบร้อยแล้ว!");
       router.push(`/order-success/${res.orderId}`);
     }

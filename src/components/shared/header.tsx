@@ -131,8 +131,22 @@ export function Header({ profile, cartCount = 0, unreadNotifications = 0 }: Head
       )
       .subscribe();
 
+    const handleWindowOrderChange = () => {
+      fetchLiveOrdersCount();
+      fetchLiveNotificationsCount();
+    };
+
+    const handleWindowCartChange = () => {
+      fetchLiveCartCount();
+    };
+
+    window.addEventListener("app:order-changed", handleWindowOrderChange);
+    window.addEventListener("app:cart-changed", handleWindowCartChange);
+
     return () => {
       supabase.removeChannel(channel);
+      window.removeEventListener("app:order-changed", handleWindowOrderChange);
+      window.removeEventListener("app:cart-changed", handleWindowCartChange);
     };
   }, [profile?.id, isAdmin]);
 
@@ -155,8 +169,8 @@ export function Header({ profile, cartCount = 0, unreadNotifications = 0 }: Head
   const adminNavItems: NavItem[] = [
     { href: "/admin", label: "แดชบอร์ด" },
     { href: "/admin/orders", label: "จัดการออเดอร์" },
-    { href: "/admin/products", label: "จัดการสินค้า" },
     { href: "/admin/production", label: "สรุปการผลิต" },
+    { href: "/admin/products", label: "จัดการสินค้า" },
     { href: "/admin/payments", label: "การชำระเงิน" },
     { href: "/admin/users", label: "ผู้ใช้งาน" },
     { href: "/admin/settings", label: "ตั้งค่าระบบ" },

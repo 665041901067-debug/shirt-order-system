@@ -63,7 +63,7 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
     };
 
     const channel = supabase
-      .channel("admin-production-realtime")
+      .channel(`admin-production-live-${Date.now()}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "orders" },
@@ -80,8 +80,11 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
       )
       .subscribe();
 
+    window.addEventListener("app:order-changed", fetchLatestProductionData);
+
     return () => {
       supabase.removeChannel(channel);
+      window.removeEventListener("app:order-changed", fetchLatestProductionData);
     };
   }, []);
 
