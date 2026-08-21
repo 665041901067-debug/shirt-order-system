@@ -98,27 +98,34 @@ export function ProductDetailInteractive({ product, profile }: Props) {
     setErrorMsg("");
     setSuccessMsg("");
 
-    const optionValueIds = Object.values(selectedOptions).map((o) => o.id);
-    const combinedNote = buildSportNote(selectedSport, note);
+    try {
+      const optionValueIds = Object.values(selectedOptions).map((o) => o.id);
+      const combinedNote = buildSportNote(selectedSport, note);
 
-    const res = await addToCart({
-      product_id: product.id,
-      size_id: selectedSize.id,
-      custom_name: allowCustomName ? customName.trim() || undefined : undefined,
-      custom_number: allowCustomNumber ? customNumber.trim() || undefined : undefined,
-      note: combinedNote,
-      quantity,
-      option_value_ids: optionValueIds,
-    });
+      const res = await addToCart({
+        product_id: product.id,
+        size_id: selectedSize.id,
+        custom_name: allowCustomName ? customName.trim() || undefined : undefined,
+        custom_number: allowCustomNumber ? customNumber.trim() || undefined : undefined,
+        note: combinedNote,
+        quantity,
+        option_value_ids: optionValueIds,
+      });
 
-    setSubmitting(false);
-
-    if (!res.success) {
-      toast.error(res.error || "เกิดข้อผิดพลาดในการเพิ่มลงตะกร้า");
-    } else {
-      toast.success("เพิ่มสินค้าลงในตะกร้าเรียบร้อยแล้ว!");
-      router.push("/cart");
-      router.refresh();
+      if (!res.success) {
+        toast.error(res.error || "เกิดข้อผิดพลาดในการเพิ่มลงตะกร้า");
+        if (res.requireLogin) {
+          router.push("/login");
+        }
+      } else {
+        toast.success("เพิ่มสินค้าลงในตะกร้าเรียบร้อยแล้ว!");
+        router.push("/cart");
+        router.refresh();
+      }
+    } catch (err: any) {
+      toast.error("เกิดข้อผิดพลาดในการเชื่อมต่อ กรุณาลองใหม่อีกครั้ง");
+    } finally {
+      setSubmitting(false);
     }
   };
 
