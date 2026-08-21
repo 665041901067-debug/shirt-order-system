@@ -6,13 +6,12 @@ import { AdminUsersInteractive } from "@/components/admin/admin-users-interactiv
 import { Profile } from "@/types";
 
 export default async function AdminUsersPage() {
-  const profile = await getCurrentProfile();
   const supabase = await createClient();
 
-  const { data: users } = await supabase
-    .from("profiles")
-    .select("*")
-    .order("created_at", { ascending: false });
+  const [profile, { data: users }] = await Promise.all([
+    getCurrentProfile(),
+    supabase.from("profiles").select("*").order("created_at", { ascending: false }),
+  ]);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex flex-col">

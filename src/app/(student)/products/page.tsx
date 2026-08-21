@@ -10,9 +10,13 @@ export default async function ProductsCatalogPage({
   searchParams: Promise<{ q?: string; category?: string }>;
 }) {
   const params = await searchParams;
-  const profile = await getCurrentProfile();
-  const campaign = await getActiveCampaign();
-  const products = await getProducts(params.q, params.category);
+  
+  // Fetch in parallel for maximum speed
+  const [profile, campaign, products] = await Promise.all([
+    getCurrentProfile(),
+    getActiveCampaign(),
+    getProducts(params.q, params.category),
+  ]);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex flex-col">

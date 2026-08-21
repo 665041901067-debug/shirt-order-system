@@ -5,8 +5,10 @@ import { Header } from "@/components/shared/header";
 import { AdminOrdersInteractive } from "@/components/admin/admin-orders-interactive";
 
 export default async function AdminOrdersPage() {
-  const profile = await getCurrentProfile();
-  const orders = await getAllAdminOrders();
+  const [profile, orders] = await Promise.all([
+    getCurrentProfile(),
+    getAllAdminOrders(),
+  ]);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex flex-col">

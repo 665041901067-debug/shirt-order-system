@@ -5,9 +5,11 @@ import { Header } from "@/components/shared/header";
 import { DashboardInteractive } from "@/components/admin/dashboard-interactive";
 
 export default async function AdminDashboardPage() {
-  const profile = await getCurrentProfile();
-  const metrics = await getAdminDashboardMetrics();
-  const orders = await getAllAdminOrders();
+  const [profile, metrics, orders] = await Promise.all([
+    getCurrentProfile(),
+    getAdminDashboardMetrics(),
+    getAllAdminOrders(),
+  ]);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex flex-col">

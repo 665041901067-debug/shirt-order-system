@@ -5,8 +5,10 @@ import { Header } from "@/components/shared/header";
 import { CartViewInteractive } from "@/components/student/cart-view-interactive";
 
 export default async function CartPage() {
-  const profile = await getCurrentProfile();
-  const cart = await getUserCart();
+  const [profile, cart] = await Promise.all([
+    getCurrentProfile(),
+    getUserCart(),
+  ]);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex flex-col">

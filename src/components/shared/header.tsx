@@ -34,7 +34,12 @@ export function Header({ profile, cartCount = 0, unreadNotifications = 0 }: Head
 
   const isAdmin = profile?.role === "ADMIN";
 
-  // Realtime Live Cart Count Listener
+  // Update liveCartCount when prop changes
+  useEffect(() => {
+    setLiveCartCount(cartCount);
+  }, [cartCount]);
+
+  // Realtime Live Cart Count Listener for dynamic changes
   useEffect(() => {
     if (!profile || isAdmin) return;
 
@@ -56,9 +61,7 @@ export function Header({ profile, cartCount = 0, unreadNotifications = 0 }: Head
       } catch (e) {}
     };
 
-    fetchLiveCartCount();
-
-    // Listen for cart changes (add/remove/checkout)
+    // Listen for realtime cart changes (add/remove/checkout)
     const channel = supabase
       .channel(`live-cart-count-${profile.id}`)
       .on(
@@ -73,7 +76,7 @@ export function Header({ profile, cartCount = 0, unreadNotifications = 0 }: Head
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [profile, isAdmin]);
+  }, [profile?.id, isAdmin]);
 
   const handleLogout = async () => {
     const supabase = createClient();

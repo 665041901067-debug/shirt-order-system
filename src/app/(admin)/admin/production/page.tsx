@@ -5,9 +5,11 @@ import { Header } from "@/components/shared/header";
 import { ProductionInteractive } from "@/components/admin/production-interactive";
 
 export default async function AdminProductionPage() {
-  const profile = await getCurrentProfile();
-  const summary = await getProductionSummary();
-  const orders = await getAllAdminOrders();
+  const [profile, summary, orders] = await Promise.all([
+    getCurrentProfile(),
+    getProductionSummary(),
+    getAllAdminOrders(),
+  ]);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex flex-col">

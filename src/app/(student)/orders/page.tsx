@@ -5,8 +5,10 @@ import { Header } from "@/components/shared/header";
 import { StudentOrdersInteractive } from "@/components/student/student-orders-interactive";
 
 export default async function OrderHistoryPage() {
-  const profile = await getCurrentProfile();
-  const orders = await getUserOrders();
+  const [profile, orders] = await Promise.all([
+    getCurrentProfile(),
+    getUserOrders(),
+  ]);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex flex-col">

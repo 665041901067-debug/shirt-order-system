@@ -5,8 +5,10 @@ import { Header } from "@/components/shared/header";
 import { AdminPaymentsInteractive } from "@/components/admin/admin-payments-interactive";
 
 export default async function AdminPaymentsPage() {
-  const profile = await getCurrentProfile();
-  const methods = await getActivePaymentMethods();
+  const [profile, methods] = await Promise.all([
+    getCurrentProfile(),
+    getActivePaymentMethods(),
+  ]);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex flex-col">
