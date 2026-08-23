@@ -40,7 +40,7 @@ export function StudentOrdersInteractive({ initialOrders }: Props) {
     };
 
     const channel = supabase
-      .channel("student-orders-live-status")
+      .channel(`student-orders-live-${Date.now()}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "orders" },
@@ -57,8 +57,11 @@ export function StudentOrdersInteractive({ initialOrders }: Props) {
       )
       .subscribe();
 
+    window.addEventListener("app:order-changed", fetchLatestOrders);
+
     return () => {
       supabase.removeChannel(channel);
+      window.removeEventListener("app:order-changed", fetchLatestOrders);
     };
   }, []);
 

@@ -98,33 +98,84 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
     }
   };
 
+  const handleConfirmCashPayment = async (orderId: string, paymentId?: string) => {
+    setLoadingAction(orderId);
+    // 1. Instant optimistic state update (0ms)
+    setOrders((prev) =>
+      prev.map((o) => {
+        if (o.id === orderId) {
+          return {
+            ...o,
+            status: "ORDER_ACCEPTED",
+            payment: o.payment
+              ? { ...o.payment, payment_method: "CASH", status: "VERIFIED" }
+              : undefined,
+          };
+        }
+        return o;
+      })
+    );
+    toast.success("ยืนยันรับชำระเงินสดเรียบร้อยแล้ว! ออเดอร์เปลี่ยนเป็น 'อนุมัติแล้ว'");
+
+    // 2. Backend update
+    if (paymentId) {
+      await verifyPayment(paymentId, "VERIFIED", "ยืนยันการรับชำระเงินสด");
+    } else {
+      await updateOrderStatus(orderId, "ORDER_ACCEPTED", "ยืนยันการรับชำระเงินสดเรียบร้อยแล้ว");
+    }
+    setLoadingAction(null);
+  };
+
   // Supabase Realtime for Admin Orders Table
   useEffect(() => {
     const supabase = createClient();
 
+    const fetchLatestOrders = async () => {
+      try {
+        const { data } = await supabase
+          .from("orders")
+          .select(`
+            *,
+            items:order_items(*),
+            payment:payments(*),
+            profile:profiles(*)
+          `)
+          .order("created_at", { ascending: false });
+
+        if (data) setOrders(data as Order[]);
+      } catch (e) {}
+    };
+
     const channel = supabase
-      .channel("admin-orders-realtime")
+      .channel(`admin-orders-live-${Date.now()}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "orders" },
-        async () => {
-          const { data } = await supabase
-            .from("orders")
-            .select(`
-              *,
-              items:order_items(*),
-              payment:payments(*),
-              profile:profiles(*)
-            `)
-            .order("created_at", { ascending: false });
-
-          if (data) setOrders(data as Order[]);
+        () => {
+          fetchLatestOrders();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "payments" },
+        () => {
+          fetchLatestOrders();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "order_items" },
+        () => {
+          fetchLatestOrders();
         }
       )
       .subscribe();
 
+    window.addEventListener("app:order-changed", fetchLatestOrders);
+
     return () => {
       supabase.removeChannel(channel);
+      window.removeEventListener("app:order-changed", fetchLatestOrders);
     };
   }, []);
 
@@ -647,15 +698,26 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
                     })}
                   </div>
 
-                  <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
                     <div>
                       <span className="text-[10px] text-slate-400 block font-medium">ยอดรวมสุทธิ</span>
                       <span className="text-base font-extrabold text-slate-900">
                         ฿{Number(order.total_amount).toLocaleString()}
                       </span>
+                      <span className="text-[11px] font-bold block mt-0.5">
+                        {payment?.status === "VERIFIED" || ["ORDER_ACCEPTED", "PAID", "PREPARING", "PRODUCTION", "READY_FOR_PICKUP", "COMPLETED"].includes(order.status) ? (
+                          <span className="text-emerald-600">✓ ชำระแล้ว ({payment?.payment_method === "CASH" ? "เงินสด" : "พร้อมเพย์"})</span>
+                        ) : payment?.payment_method === "CASH" ? (
+                          <span className="text-amber-600">💵 รอรับเงินสด</span>
+                        ) : payment?.slip_url ? (
+                          <span className="text-blue-600">💳 รอตรวจสลิป</span>
+                        ) : (
+                          <span className="text-slate-500">รอชำระเงิน</span>
+                        )}
+                      </span>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
                       {payment?.slip_url && (
                         <Button
                           size="sm"
@@ -664,10 +726,22 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
                             setActiveOrderForSlip(order);
                             setIsEditingSlipStatus(false);
                           }}
-                          className="rounded-xl text-xs h-10 px-3 font-bold"
+                          className="rounded-xl text-xs h-9 px-2.5 font-bold"
                         >
                           <FileCheck className="h-4 w-4 mr-1 text-blue-600" />
                           <span>ดูสลิป</span>
+                        </Button>
+                      )}
+
+                      {payment?.payment_method === "CASH" && order.status === "PENDING_PAYMENT" && (
+                        <Button
+                          size="sm"
+                          isLoading={loadingAction === order.id}
+                          onClick={() => handleConfirmCashPayment(order.id, payment?.id)}
+                          className="rounded-xl text-xs h-9 px-2.5 font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs"
+                        >
+                          <CheckCircle className="h-3.5 w-3.5 mr-1" />
+                          <span>รับเงินสด</span>
                         </Button>
                       )}
 
@@ -675,7 +749,7 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
                       <Button
                         size="sm"
                         onClick={() => setActiveOrderForStatusChange(order)}
-                        className="rounded-xl text-xs h-10 px-3 font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-xs"
+                        className="rounded-xl text-xs h-9 px-2.5 font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-xs"
                       >
                         <Edit3 className="h-3.5 w-3.5 mr-1" />
                         <span>เปลี่ยนสถานะ</span>
@@ -767,17 +841,21 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
                             <span className="font-semibold text-slate-800 block">
                               {payment?.payment_method === "CASH" ? "เงินสด" : "พร้อมเพย์"}
                             </span>
-                            {payment?.status === "VERIFIED" ? (
+                            {payment?.status === "VERIFIED" || ["ORDER_ACCEPTED", "PAID", "PREPARING", "PRODUCTION", "READY_FOR_PICKUP", "COMPLETED"].includes(order.status) ? (
                               <Badge variant="success" size="sm">
                                 ชำระเงินแล้ว
                               </Badge>
-                            ) : payment?.status === "REJECTED" ? (
-                              <Badge variant="danger" size="sm">
-                                ปฏิเสธสลิป
+                            ) : payment?.payment_method === "CASH" ? (
+                              <Badge variant="warning" size="sm" className="bg-amber-50 text-amber-700 border-amber-200">
+                                รอรับเงินสด
+                              </Badge>
+                            ) : payment?.slip_url ? (
+                              <Badge variant="primary" size="sm" className="bg-blue-50 text-blue-700 border-blue-200">
+                                รอตรวจสลิป
                               </Badge>
                             ) : (
                               <Badge variant="warning" size="sm">
-                                รอตรวจสอบ
+                                รอชำระเงิน
                               </Badge>
                             )}
                           </div>
@@ -809,6 +887,19 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
                               >
                                 <FileCheck className="h-3.5 w-3.5 mr-1 text-blue-600" />
                                 <span>ดูสลิป</span>
+                              </Button>
+                            )}
+
+                            {payment?.payment_method === "CASH" && order.status === "PENDING_PAYMENT" && (
+                              <Button
+                                size="sm"
+                                isLoading={loadingAction === order.id}
+                                onClick={() => handleConfirmCashPayment(order.id, payment?.id)}
+                                className="rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs"
+                                title="กดยืนยันเมื่อได้รับเงินสดจากนักศึกษาแล้ว"
+                              >
+                                <CheckCircle className="h-3.5 w-3.5 mr-1" />
+                                <span>ยืนยันรับเงินสด</span>
                               </Button>
                             )}
 

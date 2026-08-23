@@ -379,7 +379,7 @@ export function OrderTrackingInteractive({ initialOrder, paymentMethods = [] }: 
         <div className="lg:col-span-5 space-y-4">
           
           {/* SECTION A: PAYMENT ACTION CARD (For Pending Payment or Editing Slip) */}
-          {(isPendingPayment || isEditingSlip || (!isPaidOrVerified && !order.payment?.slip_url)) && (
+          {(!isPaidOrVerified && (isEditingSlip || (!order.payment?.slip_url && order.payment?.payment_method !== "CASH"))) && (
             <Card className="border-amber-200 bg-amber-50/40 rounded-3xl shadow-sm overflow-hidden" id="payment">
               <CardContent className="p-6 space-y-4">
                 <div className="flex items-center justify-between border-b border-amber-200/80 pb-3">
@@ -440,17 +440,23 @@ export function OrderTrackingInteractive({ initialOrder, paymentMethods = [] }: 
                 {/* Option 1: QR Payment Presentation & Slip Upload */}
                 {selectedMethod === "QR_PAYMENT" && (
                   <div className="space-y-4 pt-1">
-                    <div className="bg-white p-5 rounded-2xl border border-slate-200 flex flex-col items-center justify-center text-center space-y-2.5 shadow-xs">
-                      <div className="p-3 bg-white rounded-xl shadow-xs border border-slate-100">
-                        <QRCodeSVG value={promptPayPayload} size={160} level="M" />
+                    <div className="bg-white p-5 rounded-2xl border border-slate-200 flex flex-col items-center justify-center text-center space-y-3 shadow-xs">
+                      <div className="p-3.5 bg-white rounded-2xl shadow-xs border border-slate-100">
+                        <QRCodeSVG value={promptPayPayload} size={170} level="M" />
                       </div>
-                      <div className="space-y-0.5">
-                        <span className="text-xs font-bold text-slate-900 block">
-                          {qrConfig?.name || "พร้อมเพย์ สาขาวิศวกรรมคอมพิวเตอร์และระบบ IoT"}
-                        </span>
-                        <p className="text-xs text-slate-500 font-mono">
-                          เลขพร้อมเพย์: {promptPayNo}
-                        </p>
+                      <div className="space-y-1.5 w-full bg-slate-50 p-3 rounded-xl border border-slate-100 text-xs text-left">
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-500 font-medium">ชื่อบัญชี:</span>
+                          <span className="font-bold text-slate-900">{qrConfig?.name || "สาขาวิศวกรรมคอมพิวเตอร์และระบบ IoT"}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-500 font-medium">เลขพร้อมเพย์:</span>
+                          <span className="font-mono font-bold text-blue-600">{promptPayNo}</span>
+                        </div>
+                        <div className="flex items-center justify-between pt-1 border-t border-slate-200">
+                          <span className="text-slate-500 font-medium">ยอดเงินที่ต้องโอน:</span>
+                          <span className="font-black text-blue-700 text-sm font-mono">฿{Number(order.total_amount).toLocaleString()}</span>
+                        </div>
                       </div>
                     </div>
 
@@ -531,6 +537,61 @@ export function OrderTrackingInteractive({ initialOrder, paymentMethods = [] }: 
                     ยกเลิกการแก้ไข
                   </button>
                 )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* SECTION B: CASH PAYMENT CONFIRMED CARD (When student chose cash) */}
+          {order.payment?.payment_method === "CASH" && !isPaidOrVerified && !isEditingSlip && (
+            <Card className="border-amber-200 bg-amber-50/50 rounded-3xl shadow-xs overflow-hidden" id="payment">
+              <CardContent className="p-6 space-y-4">
+                <div className="flex items-center justify-between border-b border-amber-200/80 pb-3">
+                  <div className="flex items-center gap-2 text-amber-900 font-bold text-sm">
+                    <Banknote className="h-5 w-5 text-amber-600" />
+                    <span>ชำระเงินสด (Cash Payment)</span>
+                  </div>
+                  <Badge variant="warning" size="sm" className="font-bold bg-amber-100 text-amber-800 border-amber-300">
+                    รอชำระเงินสด
+                  </Badge>
+                </div>
+
+                <div className="p-4 bg-white rounded-2xl border border-amber-200 text-xs text-slate-700 space-y-3 shadow-xs">
+                  <div className="flex items-center justify-between text-xs border-b border-slate-100 pb-2">
+                    <span className="text-slate-500 font-medium">ยอดเงินสดที่ต้องชำระ:</span>
+                    <span className="text-xl font-black text-amber-600 font-mono">
+                      ฿{Number(order.total_amount).toLocaleString()}
+                    </span>
+                  </div>
+
+                  <div className="space-y-1">
+                    <p className="font-bold text-slate-900 flex items-center gap-1.5">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                      <span>บันทึกการเลือกชำระเงินสดเรียบร้อยแล้ว</span>
+                    </p>
+                    <p className="text-[11px] leading-relaxed text-slate-600">
+                      {cashInstruction}
+                    </p>
+                  </div>
+
+                  <div className="text-[11px] text-amber-900 bg-amber-50/80 p-3 rounded-xl border border-amber-200/80 space-y-1">
+                    <p className="font-bold">📌 สิ่งที่ต้องทำต่อไป:</p>
+                    <p>1. เตรียมเงินสดจำนวน <strong>฿{Number(order.total_amount).toLocaleString()}</strong></p>
+                    <p>2. นำไปชำระกับตัวแทนสาขา / แอดมิน</p>
+                    <p>3. เมื่อแอดมินได้รับเงินแล้ว จะกดยืนยันในระบบ และสถานะจะเปลี่ยนเป็น &quot;อนุมัติแล้ว&quot; ทันที</p>
+                  </div>
+                </div>
+
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setIsEditingSlip(true);
+                    setSelectedMethod("QR_PAYMENT");
+                  }}
+                  className="w-full rounded-2xl text-xs font-bold border-amber-300 text-amber-900 hover:bg-amber-100/60 h-10 shadow-2xs"
+                >
+                  <QrCode className="h-4 w-4 mr-1.5 text-blue-600" />
+                  <span>เปลี่ยนใจ: ชำระด้วย QR พร้อมเพย์ / แนบสลิป</span>
+                </Button>
               </CardContent>
             </Card>
           )}
