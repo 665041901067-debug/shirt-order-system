@@ -228,8 +228,13 @@ export function ProductDetailInteractive({ product, profile }: Props) {
   return (
     <div className="space-y-6">
       
-      {/* Size Chart Modal */}
-      <SizeChartModal isOpen={isSizeChartOpen} onClose={() => setIsSizeChartOpen(false)} />
+      {/* Size Chart Modal (Fully Dynamic from Supabase Product Sizes) */}
+      <SizeChartModal
+        isOpen={isSizeChartOpen}
+        onClose={() => setIsSizeChartOpen(false)}
+        sizes={sizes}
+        basePrice={basePrice}
+      />
 
       {/* Back button */}
       <button
