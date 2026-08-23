@@ -17,8 +17,8 @@ export async function generateOrderNumber(): Promise<string> {
   return `${prefix}${seqPadded}`;
 }
 
-export async function createOrderFromCart(payload: {
-  payment_method: "QR_PAYMENT" | "CASH" | "BANK_TRANSFER";
+export async function createOrderFromCart(payload?: {
+  payment_method?: "QR_PAYMENT" | "CASH" | "BANK_TRANSFER";
   slip_url?: string;
 }): Promise<{ success: boolean; orderId?: string; orderNumber?: string; error?: string }> {
   const supabase = await createClient();
@@ -123,10 +123,9 @@ export async function createOrderFromCart(payload: {
   // 3. Generate Order Number
   const orderNumber = await generateOrderNumber();
 
-  // 4. Initial Status
-  const initialStatus: OrderStatus = payload.payment_method === "CASH" 
-    ? "PENDING_PAYMENT" 
-    : (payload.slip_url ? "PAYMENT_REVIEW" : "PENDING_PAYMENT");
+  // 4. Initial Status is always PENDING_PAYMENT (Pre-order then pay later)
+  const initialStatus: OrderStatus = payload?.slip_url ? "PAYMENT_REVIEW" : "PENDING_PAYMENT";
+  const paymentMethod = payload?.payment_method || "QR_PAYMENT";
 
   // 5. Insert Order
   const { data: newOrder, error: orderErr } = await supabase
@@ -173,19 +172,28 @@ export async function createOrderFromCart(payload: {
   // 7. Insert Payment record
   await supabase.from("payments").insert({
     order_id: newOrder.id,
-    payment_method: payload.payment_method,
-    slip_url: payload.slip_url || null,
+    payment_method: paymentMethod,
+    slip_url: payload?.slip_url || null,
     amount: grandTotal,
-    status: payload.slip_url ? "PENDING" : "PENDING",
+    status: "PENDING",
   });
 
-  // 8. Insert Order Status History
-  await supabase.from("order_status_history").insert({
-    order_id: newOrder.id,
-    new_status: initialStatus,
-    changed_by: user.id,
-    note: "คำสั่งซื้อถูกสร้างในระบบ",
-  });
+  // 8. Insert Order Status History & In-App Notification in background
+  Promise.allSettled([
+    supabase.from("order_status_history").insert({
+      order_id: newOrder.id,
+      new_status: initialStatus,
+      changed_by: user.id,
+      note: "สร้างคำสั่งจองเสื้อในระบบ (รอชำระเงิน)",
+    }),
+    supabase.from("notifications").insert({
+      user_id: user.id,
+      title: `บันทึกคำสั่งจองเสื้อสำเร็จ #${orderNumber}`,
+      message: `คำสั่งซื้อของคุณอยู่ในสถานะ: รอชำระเงิน สามารถชำระเงินได้ที่หน้าติดตามสถานะ`,
+      type: "ORDER_STATUS",
+      link_url: `/orders/${newOrder.id}`,
+    }),
+  ]).catch(() => {});
 
   // 9. Clear User Cart
   await supabase.from("cart_items").delete().eq("cart_id", cart.id);
@@ -195,6 +203,87 @@ export async function createOrderFromCart(payload: {
     orderId: newOrder.id,
     orderNumber,
   };
+}
+
+export async function submitOrderPayment(payload: {
+  orderId: string;
+  payment_method: "QR_PAYMENT" | "CASH" | "BANK_TRANSFER";
+  slip_url?: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { success: false, error: "ไม่พบข้อมูลผู้ใช้งาน" };
+  }
+
+  const { data: order } = await supabase
+    .from("orders")
+    .select("id, order_number, total_amount, status, user_id")
+    .eq("id", payload.orderId)
+    .single();
+
+  if (!order) {
+    return { success: false, error: "ไม่พบข้อมูลคำสั่งซื้อ" };
+  }
+
+  const newStatus: OrderStatus = payload.slip_url ? "PAYMENT_REVIEW" : (payload.payment_method === "CASH" ? "PENDING_PAYMENT" : "PAYMENT_REVIEW");
+
+  // 1. Upsert or update payment
+  const { data: existingPayment } = await supabase
+    .from("payments")
+    .select("id")
+    .eq("order_id", payload.orderId)
+    .maybeSingle();
+
+  if (existingPayment) {
+    await supabase
+      .from("payments")
+      .update({
+        payment_method: payload.payment_method,
+        slip_url: payload.slip_url || null,
+        status: "PENDING",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", existingPayment.id);
+  } else {
+    await supabase.from("payments").insert({
+      order_id: payload.orderId,
+      payment_method: payload.payment_method,
+      slip_url: payload.slip_url || null,
+      amount: order.total_amount,
+      status: "PENDING",
+    });
+  }
+
+  // 2. Update order status
+  await supabase
+    .from("orders")
+    .update({
+      status: newStatus,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", payload.orderId);
+
+  // 3. Status History & Notification
+  Promise.allSettled([
+    supabase.from("order_status_history").insert({
+      order_id: payload.orderId,
+      old_status: order.status,
+      new_status: newStatus,
+      changed_by: user.id,
+      note: payload.slip_url ? "ผู้สั่งซื้อแนบสลิปโอนเงินเรียบร้อยแล้ว (รอตรวจสอบ)" : "ผู้สั่งซื้อเลือกชำระเงินสด",
+    }),
+    supabase.from("notifications").insert({
+      user_id: user.id,
+      title: `อัปเดตการชำระเงิน #${order.order_number}`,
+      message: payload.slip_url ? `ส่งหลักฐานการชำระเงินเรียบร้อยแล้ว สถานะ: รอตรวจสอบสลิป` : `เลือกชำระเงินสดเรียบร้อย กรุณาชำระกับตัวแทนสาขา`,
+      type: "ORDER_STATUS",
+      link_url: `/orders/${payload.orderId}`,
+    }),
+  ]).catch(() => {});
+
+  return { success: true };
 }
 
 export async function getUserOrders(): Promise<Order[]> {

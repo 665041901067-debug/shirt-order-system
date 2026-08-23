@@ -4,8 +4,10 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { QRCodeSVG } from "qrcode.react";
-import { Order, OrderStatus } from "@/types";
+import { Order, OrderStatus, PaymentMethodConfig } from "@/types";
 import { createClient } from "@/lib/supabase/client";
+import { submitOrderPayment } from "@/services/orders";
+import { generatePromptPayPayload } from "@/lib/promptpay";
 import { useToast } from "@/components/ui/toast";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -18,10 +20,13 @@ import {
   ArrowLeft, 
   QrCode, 
   FileText,
-  Lock,
   Upload,
   Check,
-  FileImage
+  FileImage,
+  CreditCard,
+  Banknote,
+  Edit3,
+  Download
 } from "lucide-react";
 
 import { ORDER_STEPS, getStatusLabel, getStatusBadgeVariant } from "@/lib/order-status";
@@ -29,26 +34,40 @@ import { extractSportType, cleanNoteWithoutSport, getSportBadgeColor } from "@/l
 
 interface Props {
   initialOrder: Order;
+  paymentMethods?: PaymentMethodConfig[];
 }
 
-export function OrderTrackingInteractive({ initialOrder }: Props) {
+export function OrderTrackingInteractive({ initialOrder, paymentMethods = [] }: Props) {
   const toast = useToast();
   const [order, setOrder] = useState<Order>(initialOrder);
   const [realtimeStatus, setRealtimeStatus] = useState<"CONNECTED" | "DISCONNECTED" | "ERROR">("CONNECTED");
   
+  // Payment methods
+  const isQRActive = paymentMethods.length === 0 || paymentMethods.some((m) => m.type === "QR_PAYMENT" && m.is_active !== false);
+  const isCashActive = paymentMethods.some((m) => m.type === "CASH" && m.is_active === true);
+
+  const [selectedMethod, setSelectedMethod] = useState<"QR_PAYMENT" | "CASH">(
+    order.payment?.payment_method === "CASH" ? "CASH" : "QR_PAYMENT"
+  );
+
   // Slip upload state
   const [slipFile, setSlipFile] = useState<File | null>(null);
   const [slipPreview, setSlipPreview] = useState<string>("");
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
-  const [uploadSuccess, setUploadSuccess] = useState("");
+  const [isEditingSlip, setIsEditingSlip] = useState(false);
+
+  const qrConfig = paymentMethods.find((m) => m.type === "QR_PAYMENT");
+  const promptPayNo = qrConfig?.promptpay_no || "0812345678";
+  const promptPayPayload = generatePromptPayPayload(promptPayNo, Number(order.total_amount) || 0);
+  const cashInstruction = paymentMethods.find((m) => m.type === "CASH")?.instruction || "กรุณาชำระเงินสดให้กับคณะกรรมการจัดทำเสื้อประจำสาขา เพื่อให้กรรมการทำการยืนยันการรับเงินในระบบ";
 
   // Supabase Realtime Subscription setup
   useEffect(() => {
     const supabase = createClient();
 
     const channel = supabase
-      .channel(`order-tracking-${order.id}`)
+      .channel(`order-tracking-live-${order.id}`)
       .on(
         "postgres_changes",
         {
@@ -109,65 +128,85 @@ export function OrderTrackingInteractive({ initialOrder }: Props) {
       setSlipFile(file);
       setSlipPreview(URL.createObjectURL(file));
       setUploadError("");
-      toast.success("แนบไฟล์สลิปแล้ว พร้อมกดยืนยันอัปโหลด");
+      toast.success("แนบไฟล์สลิปแล้ว พร้อมกดยืนยันชำระเงิน");
     }
   };
 
-  const handleUploadSlipSubmit = async () => {
-    if (!slipFile) {
-      setUploadError("กรุณาเลือกไฟล์รูปภาพสลิป");
-      toast.error("กรุณาเลือกไฟล์รูปภาพสลิป");
+  const handlePaymentSubmit = async () => {
+    if (selectedMethod === "QR_PAYMENT" && !slipFile && !order.payment?.slip_url) {
+      setUploadError("กรุณาเลือกไฟล์รูปภาพสลิปการโอนเงิน");
+      toast.error("กรุณาเลือกไฟล์รูปภาพสลิปการโอนเงิน");
       return;
     }
 
     setUploading(true);
     setUploadError("");
-    setUploadSuccess("");
 
-    const supabase = createClient();
-    const fileExt = slipFile.name.split(".").pop();
-    const fileName = `slip_${order.id}_${Date.now()}.${fileExt}`;
-    const filePath = fileName;
+    try {
+      let uploadedUrl: string | undefined = order.payment?.slip_url || undefined;
 
-    const { data: uploadData, error: uploadErr } = await supabase.storage
-      .from("slips")
-      .upload(filePath, slipFile);
+      if (selectedMethod === "QR_PAYMENT" && slipFile) {
+        const supabase = createClient();
+        const fileExt = slipFile.name.split(".").pop();
+        const fileName = `slip_${order.id}_${Date.now()}.${fileExt}`;
+        const filePath = fileName;
 
-    let uploadedUrl: string | undefined = undefined;
+        const { data: uploadData, error: uploadErr } = await supabase.storage
+          .from("slips")
+          .upload(filePath, slipFile);
 
-    if (uploadErr) {
-      const { data: pubUrl } = supabase.storage.from("slips").getPublicUrl(filePath);
-      uploadedUrl = pubUrl.publicUrl;
-    } else {
-      const { data: pubUrl } = supabase.storage.from("slips").getPublicUrl(uploadData.path);
-      uploadedUrl = pubUrl.publicUrl;
-    }
+        if (uploadErr) {
+          const { data: pubUrl } = supabase.storage.from("slips").getPublicUrl(filePath);
+          uploadedUrl = pubUrl.publicUrl;
+        } else {
+          const { data: pubUrl } = supabase.storage.from("slips").getPublicUrl(uploadData.path);
+          uploadedUrl = pubUrl.publicUrl;
+        }
+      }
 
-    // Update payment record in DB
-    if (order.payment?.id) {
-      await supabase
-        .from("payments")
-        .update({
-          slip_url: uploadedUrl,
+      // Optimistic state update
+      const newStatus: OrderStatus = selectedMethod === "QR_PAYMENT" && uploadedUrl ? "PAYMENT_REVIEW" : "PENDING_PAYMENT";
+      setOrder((prev) => ({
+        ...prev,
+        status: newStatus,
+        payment: {
+          ...prev.payment,
+          id: prev.payment?.id || "temp",
+          order_id: prev.id,
+          payment_method: selectedMethod,
+          slip_url: uploadedUrl || undefined,
           status: "PENDING",
-        })
-        .eq("id", order.payment.id);
+          amount: prev.total_amount,
+          created_at: prev.created_at,
+          updated_at: new Date().toISOString(),
+        },
+      }));
+      setIsEditingSlip(false);
+
+      // Backend call
+      const res = await submitOrderPayment({
+        orderId: order.id,
+        payment_method: selectedMethod,
+        slip_url: uploadedUrl,
+      });
+
+      if (!res.success) {
+        toast.error(res.error || "เกิดข้อผิดพลาดในการบันทึกข้อมูลการชำระเงิน");
+      } else {
+        toast.success(
+          selectedMethod === "QR_PAYMENT"
+            ? "ส่งหลักฐานการชำระเงินเรียบร้อยแล้ว! แอดมินจะทำการตรวจสอบข้อมูล"
+            : "เลือกชำระเงินสดเรียบร้อย กรุณาติดต่อชำระกับตัวแทนสาขา"
+        );
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("app:order-changed"));
+        }
+      }
+    } catch (err: any) {
+      toast.error("เกิดข้อผิดพลาดในการเชื่อมต่อ กรุณาลองใหม่อีกครั้ง");
+    } finally {
+      setUploading(false);
     }
-
-    // Update order status to PAYMENT_REVIEW
-    await supabase
-      .from("orders")
-      .update({ status: "PAYMENT_REVIEW" })
-      .eq("id", order.id);
-
-    setUploading(false);
-    toast.success("แนบสลิปชำระเงินเรียบร้อยแล้ว! เจ้าหน้าที่จะทำการตรวจสอบข้อมูล");
-    
-    setOrder((prev) => ({
-      ...prev,
-      status: "PAYMENT_REVIEW",
-      payment: prev.payment ? { ...prev.payment, slip_url: uploadedUrl } : undefined,
-    }));
   };
 
   const currentStepIndex = (() => {
@@ -176,10 +215,11 @@ export function OrderTrackingInteractive({ initialOrder }: Props) {
     }
     return ORDER_STEPS.findIndex((s) => s.status === order.status);
   })();
+
   const isCancelled = order.status === "CANCELLED";
-  const isProductionOrBeyond = ["ORDER_ACCEPTED", "PAID", "PREPARING", "PRODUCTION", "READY_FOR_PICKUP", "COMPLETED"].includes(order.status);
-  const isQRPayment = order.payment?.payment_method === "QR_PAYMENT";
-  const needsSlipUpload = isQRPayment && (order.status === "PENDING_PAYMENT" || !order.payment?.slip_url);
+  const isPendingPayment = order.status === "PENDING_PAYMENT";
+  const isPaymentReview = order.status === "PAYMENT_REVIEW";
+  const isPaidOrVerified = order.payment?.status === "VERIFIED" || ["PAID", "ORDER_ACCEPTED", "PREPARING", "PRODUCTION", "READY_FOR_PICKUP", "COMPLETED"].includes(order.status);
 
   return (
     <div className="space-y-6">
@@ -207,7 +247,7 @@ export function OrderTrackingInteractive({ initialOrder }: Props) {
                 #{order.order_number}
               </h1>
               <p className="text-xs text-slate-500 mt-0.5">
-                สั่งซื้อเมื่อ: {new Date(order.created_at).toLocaleString("th-TH")}
+                สั่งจองเมื่อ: {new Date(order.created_at).toLocaleString("th-TH")}
               </p>
             </div>
 
@@ -270,11 +310,12 @@ export function OrderTrackingInteractive({ initialOrder }: Props) {
         </CardContent>
       </Card>
 
+      {/* Grid Layout: Items & Payment Action */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         
         {/* Left Column: Order Items */}
         <div className="lg:col-span-7 space-y-4">
-          <Card className="border-slate-200 bg-white rounded-2xl shadow-xs">
+          <Card className="border-slate-200 bg-white rounded-3xl shadow-xs">
             <CardContent className="p-6 space-y-4">
               <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-3">
                 <Shirt className="h-4 w-4 text-blue-600" />
@@ -334,21 +375,210 @@ export function OrderTrackingInteractive({ initialOrder }: Props) {
           </Card>
         </div>
 
-        {/* Right Column: QR Pickup Code & Slip Upload */}
+        {/* Right Column: Payment Card or QR Pickup Code */}
         <div className="lg:col-span-5 space-y-4">
           
-          {/* 1. QR Code for Pickup (Optimized for instant camera scan) */}
-          <Card className="border-slate-200 bg-white rounded-2xl shadow-xs text-center">
+          {/* SECTION A: PAYMENT ACTION CARD (For Pending Payment or Editing Slip) */}
+          {(isPendingPayment || isEditingSlip || (!isPaidOrVerified && !order.payment?.slip_url)) && (
+            <Card className="border-amber-200 bg-amber-50/40 rounded-3xl shadow-sm overflow-hidden" id="payment">
+              <CardContent className="p-6 space-y-4">
+                <div className="flex items-center justify-between border-b border-amber-200/80 pb-3">
+                  <div className="flex items-center gap-2 text-amber-900 font-bold text-sm">
+                    <CreditCard className="h-5 w-5 text-amber-600" />
+                    <span>ชำระเงินสำหรับคำสั่งซื้อนี้</span>
+                  </div>
+                  <Badge variant="warning" size="sm" className="font-bold">
+                    ยังไม่ได้ชำระเงิน
+                  </Badge>
+                </div>
+
+                {/* Total amount prompt */}
+                <div className="p-3.5 bg-white rounded-2xl border border-amber-200/80 flex items-center justify-between text-xs">
+                  <span className="text-slate-600 font-medium">ยอดที่ต้องชำระ:</span>
+                  <span className="text-xl font-black text-blue-600 font-mono">
+                    ฿{Number(order.total_amount).toLocaleString()}
+                  </span>
+                </div>
+
+                {/* Method selector buttons */}
+                <div className="grid grid-cols-2 gap-2">
+                  {isQRActive && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedMethod("QR_PAYMENT")}
+                      className={`p-3 rounded-2xl border text-left transition-all ${
+                        selectedMethod === "QR_PAYMENT"
+                          ? "border-blue-600 bg-blue-50/60 shadow-xs"
+                          : "border-slate-200 bg-white hover:border-slate-300"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <QrCode className={`h-4 w-4 ${selectedMethod === "QR_PAYMENT" ? "text-blue-600" : "text-slate-400"}`} />
+                        <span className="text-xs font-bold text-slate-900">QR พร้อมเพย์</span>
+                      </div>
+                    </button>
+                  )}
+
+                  {isCashActive && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedMethod("CASH")}
+                      className={`p-3 rounded-2xl border text-left transition-all ${
+                        selectedMethod === "CASH"
+                          ? "border-blue-600 bg-blue-50/60 shadow-xs"
+                          : "border-slate-200 bg-white hover:border-slate-300"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Banknote className={`h-4 w-4 ${selectedMethod === "CASH" ? "text-blue-600" : "text-slate-400"}`} />
+                        <span className="text-xs font-bold text-slate-900">ชำระเงินสด</span>
+                      </div>
+                    </button>
+                  )}
+                </div>
+
+                {/* Option 1: QR Payment Presentation & Slip Upload */}
+                {selectedMethod === "QR_PAYMENT" && (
+                  <div className="space-y-4 pt-1">
+                    <div className="bg-white p-5 rounded-2xl border border-slate-200 flex flex-col items-center justify-center text-center space-y-2.5 shadow-xs">
+                      <div className="p-3 bg-white rounded-xl shadow-xs border border-slate-100">
+                        <QRCodeSVG value={promptPayPayload} size={160} level="M" />
+                      </div>
+                      <div className="space-y-0.5">
+                        <span className="text-xs font-bold text-slate-900 block">
+                          {qrConfig?.name || "พร้อมเพย์ สาขาวิศวกรรมคอมพิวเตอร์และระบบ IoT"}
+                        </span>
+                        <p className="text-xs text-slate-500 font-mono">
+                          เลขพร้อมเพย์: {promptPayNo}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Slip Upload Zone */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-slate-800 block">
+                        แนบไฟล์สลิปโอนเงิน *
+                      </label>
+
+                      <div className="border-2 border-dashed border-amber-300 hover:border-amber-500 bg-white rounded-2xl p-4 text-center cursor-pointer transition-colors">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleSlipChange}
+                          className="hidden"
+                          id="tracking-slip-input"
+                        />
+                        <label htmlFor="tracking-slip-input" className="cursor-pointer block space-y-1">
+                          {slipPreview ? (
+                            <div className="space-y-2">
+                              <div className="relative h-36 w-full rounded-xl overflow-hidden border border-slate-200">
+                                <Image src={slipPreview} alt="Slip" fill className="object-contain" />
+                              </div>
+                              <span className="text-[11px] text-blue-600 font-bold block hover:underline">
+                                คลิกเพื่อเปลี่ยนรูปสลิป
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="space-y-1 py-2">
+                              <Upload className="h-6 w-6 text-amber-600 mx-auto" />
+                              <span className="text-xs font-bold text-slate-800 block">
+                                คลิกเพื่อเลือกรูปภาพสลิป
+                              </span>
+                              <span className="text-[10px] text-slate-400 block">
+                                ไฟล์ JPG, PNG (ไม่เกิน 5MB)
+                              </span>
+                            </div>
+                          )}
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Option 2: Cash Instructions */}
+                {selectedMethod === "CASH" && (
+                  <div className="p-3.5 bg-white rounded-2xl border border-slate-200 text-xs text-slate-700 space-y-1">
+                    <p className="font-bold text-slate-900 flex items-center gap-1.5">
+                      <Banknote className="h-4 w-4 text-amber-600" />
+                      <span>ขั้นตอนการชำระเงินสด:</span>
+                    </p>
+                    <p className="text-[11px] leading-relaxed text-slate-600">
+                      {cashInstruction}
+                    </p>
+                  </div>
+                )}
+
+                {uploadError && (
+                  <p className="text-xs text-red-600 font-medium">
+                    {uploadError}
+                  </p>
+                )}
+
+                <Button
+                  onClick={handlePaymentSubmit}
+                  isLoading={uploading}
+                  className="w-full bg-blue-600 hover:bg-blue-500 text-white rounded-2xl text-xs font-bold h-11 shadow-md shadow-blue-500/20"
+                >
+                  <Check className="h-4 w-4 mr-1.5" />
+                  <span>{selectedMethod === "QR_PAYMENT" ? "ยืนยันและส่งสลิปชำระเงิน" : "ยืนยันเลือกชำระเงินสด"}</span>
+                </Button>
+
+                {isEditingSlip && (
+                  <button
+                    onClick={() => setIsEditingSlip(false)}
+                    className="w-full text-center text-xs text-slate-400 hover:text-slate-600 font-bold pt-1"
+                  >
+                    ยกเลิกการแก้ไข
+                  </button>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* SECTION B: SLIP PREVIEW & STATUS (If already sent slip) */}
+          {order.payment?.slip_url && !isEditingSlip && (
+            <Card className="border-slate-200 bg-white rounded-3xl shadow-xs overflow-hidden">
+              <CardContent className="p-6 space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                  <h4 className="font-bold text-xs text-slate-800 flex items-center gap-1.5">
+                    <FileImage className="h-4 w-4 text-blue-600" />
+                    <span>หลักฐานการโอนเงิน (สลิป)</span>
+                  </h4>
+                  <Badge variant={order.payment?.status === "VERIFIED" ? "success" : "warning"} size="sm" className="font-bold">
+                    {order.payment?.status === "VERIFIED" ? "อนุมัติแล้ว" : "รอตรวจสอบสลิป"}
+                  </Badge>
+                </div>
+
+                <div className="relative h-44 w-full rounded-2xl overflow-hidden bg-slate-50 border border-slate-200">
+                  <Image src={order.payment.slip_url} alt="Slip" fill className="object-contain" />
+                </div>
+
+                {order.payment?.status !== "VERIFIED" && !isPaidOrVerified && (
+                  <Button
+                    variant="outline"
+                    onClick={() => setIsEditingSlip(true)}
+                    className="w-full rounded-xl text-xs font-bold border-slate-200 text-slate-700 hover:bg-slate-50 mt-1"
+                  >
+                    <Edit3 className="h-3.5 w-3.5 mr-1" />
+                    <span>แก้ไขสลิป / ส่งสลิปใหม่</span>
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* SECTION C: QR CODE FOR PICKUP */}
+          <Card className="border-slate-200 bg-white rounded-3xl shadow-xs text-center">
             <CardContent className="p-6 space-y-3">
               <h3 className="font-bold text-sm text-slate-900 flex items-center justify-center gap-2">
                 <QrCode className="h-4 w-4 text-blue-600" />
                 <span>คิวอาร์โค้ดสำหรับรับเสื้อ</span>
               </h3>
 
-              <div className="bg-white p-3 rounded-2xl border-2 border-slate-100 inline-block shadow-sm">
+              <div className="bg-white p-3 rounded-2xl border-2 border-slate-100 inline-block shadow-xs">
                 <QRCodeSVG
                   value={`ORDER:${order.order_number}`}
-                  size={180}
+                  size={170}
                   level="M"
                   includeMargin={true}
                   className="rounded-lg"
@@ -363,73 +593,6 @@ export function OrderTrackingInteractive({ initialOrder }: Props) {
               </p>
             </CardContent>
           </Card>
-
-          {/* 2. Slip Upload (if not uploaded or pending) */}
-          {needsSlipUpload && (
-            <Card className="border-amber-200 bg-amber-50/50 rounded-2xl shadow-xs">
-              <CardContent className="p-6 space-y-3">
-                <div className="flex items-center gap-2 text-amber-800 font-bold text-xs">
-                  <AlertCircle className="h-4 w-4 text-amber-600" />
-                  <span>ยังไม่ได้แนบสลิปชำระเงิน</span>
-                </div>
-
-                <div className="border-2 border-dashed border-amber-300 hover:border-amber-500 bg-white rounded-xl p-4 text-center cursor-pointer">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleSlipChange}
-                    className="hidden"
-                    id="tracking-slip-input"
-                  />
-                  <label htmlFor="tracking-slip-input" className="cursor-pointer block space-y-1">
-                    {slipPreview ? (
-                      <div className="relative h-28 w-full rounded-lg overflow-hidden border border-slate-200">
-                        <Image src={slipPreview} alt="Slip" fill className="object-contain" />
-                      </div>
-                    ) : (
-                      <>
-                        <Upload className="h-6 w-6 text-amber-600 mx-auto" />
-                        <span className="text-xs font-bold text-slate-800 block">
-                          คลิกเพื่อเลือกไฟล์รูปภาพสลิป
-                        </span>
-                      </>
-                    )}
-                  </label>
-                </div>
-
-                <Button
-                  onClick={handleUploadSlipSubmit}
-                  isLoading={uploading}
-                  disabled={!slipFile}
-                  className="w-full bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold"
-                >
-                  <Check className="h-4 w-4 mr-1.5" />
-                  <span>ยืนยันอัปโหลดสลิป</span>
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* 3. Slip Preview if already uploaded */}
-          {order.payment?.slip_url && (
-            <Card className="border-slate-200 bg-white rounded-2xl shadow-xs">
-              <CardContent className="p-6 space-y-3">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                  <h4 className="font-bold text-xs text-slate-800 flex items-center gap-1.5">
-                    <FileImage className="h-4 w-4 text-blue-600" />
-                    <span>หลักฐานการโอนเงิน (สลิป)</span>
-                  </h4>
-                  <Badge variant={order.payment?.status === "VERIFIED" ? "success" : "warning"} size="sm">
-                    {order.payment?.status === "VERIFIED" ? "ตรวจสอบแล้ว" : "รอตรวจสอบ"}
-                  </Badge>
-                </div>
-
-                <div className="relative h-44 w-full rounded-xl overflow-hidden bg-slate-50 border border-slate-200">
-                  <Image src={order.payment.slip_url} alt="Slip" fill className="object-contain" />
-                </div>
-              </CardContent>
-            </Card>
-          )}
 
         </div>
 
