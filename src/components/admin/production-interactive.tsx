@@ -127,7 +127,12 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
 
   // Calculate Sport Breakdown Summary for distributors
   const sportSummary = SPORT_TYPES.map((sport) => {
-    const count = productionList.filter((p) => p.sportType === sport).length;
+    const count = productionList.filter((p) => {
+      if (sport === "ไม่ได้เล่นกีฬา") {
+        return p.sportType === "ไม่ได้เล่นกีฬา" || !p.sportType;
+      }
+      return p.sportType.includes(sport);
+    }).length;
     return { sport, count };
   });
 
@@ -143,7 +148,11 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
       item.orderNumber.toLowerCase().includes(q);
 
     const matchesSize = selectedSizeFilter === "ALL" || item.sizeName === selectedSizeFilter;
-    const matchesSport = selectedSportFilter === "ALL" || item.sportType === selectedSportFilter;
+    const matchesSport =
+      selectedSportFilter === "ALL" ||
+      (selectedSportFilter === "ไม่ได้เล่นกีฬา"
+        ? item.sportType === "ไม่ได้เล่นกีฬา" || !item.sportType
+        : item.sportType.includes(selectedSportFilter));
 
     const hasName = item.customName && item.customName !== "-";
     const hasNumber = item.customNumber && item.customNumber !== "-";

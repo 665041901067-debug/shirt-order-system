@@ -13,7 +13,8 @@ export const SPORT_TYPES = [
 export type SportType = (typeof SPORT_TYPES)[number];
 
 export function getSportBadgeColor(sport?: string): string {
-  switch (sport) {
+  const trimmed = sport?.trim();
+  switch (trimmed) {
     case "ฟุตบอล":
       return "bg-emerald-50 text-emerald-700 border-emerald-200";
     case "ฟุตซอล":
@@ -68,13 +69,26 @@ export function extractSportType(item?: { note?: string | null; options?: any[] 
   return "ไม่ได้เล่นกีฬา";
 }
 
+export function extractSportsList(item?: { note?: string | null; options?: any[] }): string[] {
+  const sportStr = extractSportType(item);
+  if (!sportStr || sportStr === "ไม่ได้เล่นกีฬา") return ["ไม่ได้เล่นกีฬา"];
+  const list = sportStr.split(",").map((s) => s.trim()).filter(Boolean);
+  return list.length > 0 ? list : ["ไม่ได้เล่นกีฬา"];
+}
+
 export function cleanNoteWithoutSport(note?: string | null): string {
   if (!note) return "";
   return note.replace(/\[กีฬา:\s*[^\]]+\]\s*/g, "").trim();
 }
 
-export function buildSportNote(sportType: string, customNote?: string): string {
-  const cleanSport = sportType.trim() || "ไม่ได้เล่นกีฬา";
+export function buildSportNote(sportInput: string | string[], customNote?: string): string {
+  let cleanSport = "";
+  if (Array.isArray(sportInput)) {
+    const validSports = sportInput.filter((s) => s && s !== "ไม่ได้เล่นกีฬา");
+    cleanSport = validSports.length > 0 ? validSports.join(", ") : "ไม่ได้เล่นกีฬา";
+  } else {
+    cleanSport = (sportInput || "").trim() || "ไม่ได้เล่นกีฬา";
+  }
   const noteContent = (customNote || "").trim();
   return `[กีฬา: ${cleanSport}]${noteContent ? ` ${noteContent}` : ""}`;
 }

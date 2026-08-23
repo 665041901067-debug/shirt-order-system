@@ -58,8 +58,26 @@ export function ProductDetailInteractive({ product, profile }: Props) {
   const allowCustomNumber = product.allow_custom_number !== false;
   const [customName, setCustomName] = useState("");
   const [customNumber, setCustomNumber] = useState("");
-  const [selectedSport, setSelectedSport] = useState<string>("ไม่ได้เล่นกีฬา");
+  const [selectedSports, setSelectedSports] = useState<string[]>(["ไม่ได้เล่นกีฬา"]);
   const [note, setNote] = useState("");
+
+  const toggleSport = (sport: string) => {
+    setErrorMsg("");
+    if (sport === "ไม่ได้เล่นกีฬา") {
+      setSelectedSports(["ไม่ได้เล่นกีฬา"]);
+      return;
+    }
+
+    setSelectedSports((prev) => {
+      const withoutNone = prev.filter((s) => s !== "ไม่ได้เล่นกีฬา");
+      if (withoutNone.includes(sport)) {
+        const remaining = withoutNone.filter((s) => s !== sport);
+        return remaining.length > 0 ? remaining : ["ไม่ได้เล่นกีฬา"];
+      } else {
+        return [...withoutNone, sport];
+      }
+    });
+  };
 
   // Quantity state
   const [quantity, setQuantity] = useState(1);
@@ -160,7 +178,7 @@ export function ProductDetailInteractive({ product, profile }: Props) {
     }
 
     // 5. Mandatory Sport Type Validation
-    if (!selectedSport) {
+    if (!selectedSports || selectedSports.length === 0) {
       toast.error("กรุณาเลือกประเภทกีฬาที่ลงแข่งขัน");
       setErrorMsg("กรุณาเลือกประเภทกีฬาที่ลงแข่งขัน");
       return;
@@ -174,7 +192,7 @@ export function ProductDetailInteractive({ product, profile }: Props) {
 
     try {
       const optionValueIds = Object.values(selectedOptions).map((o) => o.id);
-      const combinedNote = buildSportNote(selectedSport, note);
+      const combinedNote = buildSportNote(selectedSports, note);
 
       const res = await addToCart({
         product_id: product.id,
@@ -503,28 +521,25 @@ export function ProductDetailInteractive({ product, profile }: Props) {
                 </div>
               )}
 
-              {/* STEP: SPORT SELECTION (MANDATORY *) */}
+              {/* STEP: SPORT SELECTION (MANDATORY * MULTI-SELECT) */}
               <div className="space-y-2 pt-2 border-t border-slate-100">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                   <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
                     {sportStep}. ประเภทกีฬาที่ลงแข่งขัน (Sport Type) <span className="text-red-500 font-bold">*</span>
                   </label>
-                  <span className="text-[11px] text-slate-400 font-medium">
-                    (สำหรับแยกประเภทแจกเสื้อ)
+                  <span className="text-[11px] text-blue-600 font-semibold">
+                    (เลือกได้มากกว่า 1 กีฬา)
                   </span>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {SPORT_TYPES.map((sport) => {
-                    const isSportSelected = selectedSport === sport;
+                    const isSportSelected = selectedSports.includes(sport);
                     return (
                       <button
                         key={sport}
                         type="button"
-                        onClick={() => {
-                          setSelectedSport(sport);
-                          setErrorMsg("");
-                        }}
+                        onClick={() => toggleSport(sport)}
                         className={`flex items-center justify-between p-2.5 rounded-xl border text-xs font-bold transition-all ${
                           isSportSelected
                             ? "border-blue-600 bg-blue-50 text-blue-700 shadow-2xs"
@@ -537,6 +552,12 @@ export function ProductDetailInteractive({ product, profile }: Props) {
                     );
                   })}
                 </div>
+
+                {selectedSports.length > 0 && !selectedSports.includes("ไม่ได้เล่นกีฬา") && (
+                  <p className="text-[11px] text-emerald-700 font-semibold pt-0.5">
+                    ✓ กีฬาที่เลือก ({selectedSports.length} ชนิด): {selectedSports.join(", ")}
+                  </p>
+                )}
               </div>
 
               {/* STEP: NOTE FIELD (OPTIONAL - ไม่ต้องบังคับกรอก) */}
