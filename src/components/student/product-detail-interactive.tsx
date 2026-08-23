@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Product, Profile, ProductSize, OptionValue } from "@/types";
+import { createClient } from "@/lib/supabase/client";
 import { ShirtPreview } from "./shirt-preview";
 import { SizeChartModal } from "./size-chart-modal";
 import { addToCart } from "@/services/cart";
@@ -24,7 +25,9 @@ import {
   Tag,
   Ruler,
   Images,
-  Maximize2
+  Maximize2,
+  Trophy,
+  Info
 } from "lucide-react";
 
 import { SPORT_TYPES, SportType, buildSportNote } from "@/lib/sports";
@@ -36,6 +39,7 @@ interface Props {
 
 export function ProductDetailInteractive({ product, profile }: Props) {
   const router = useRouter();
+  const toast = useToast();
 
   // Images state (Multi-image gallery view)
   const images = product.images || [];
@@ -69,6 +73,32 @@ export function ProductDetailInteractive({ product, profile }: Props) {
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
 
+  // Realtime live update for product details and prices
+  useEffect(() => {
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`product-live-${product.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "products", filter: `id=eq.${product.id}` },
+        () => {
+          router.refresh();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "product_sizes", filter: `product_id=eq.${product.id}` },
+        () => {
+          router.refresh();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [product.id, router]);
+
   // 100% Strict & Accurate Price Calculation Logic
   const basePrice = Number(product.base_price) || 0;
   const sizeAdjustment = Number(selectedSize?.price_adjustment) || 0;
@@ -86,13 +116,58 @@ export function ProductDetailInteractive({ product, profile }: Props) {
   const unitPrice = basePrice + sizeAdjustment + optionsAdjustment + nameAdjustment + numberAdjustment;
   const totalPrice = unitPrice * quantity;
 
-  const toast = useToast();
+  // Compute Dynamic Sequential Step Numbers (No Number Skipping)
+  let currentStep = 1;
+  const sizeStep = currentStep++;
+  const hasActiveOptions = product.options && product.options.some((o) => o.is_active && o.group);
+  const optionsStep = hasActiveOptions ? currentStep++ : null;
+  const customStep = (allowCustomName || allowCustomNumber) ? currentStep++ : null;
+  const sportStep = currentStep++;
+  const noteStep = currentStep++;
 
   const handleAddToCart = async () => {
+    // 1. Mandatory Size Validation
     if (!selectedSize) {
-      toast.error("กรุณาเลือกไซส์เสื้อก่อนเพิ่มลงในตะกร้า");
+      toast.error("กรุณาเลือกไซส์เสื้อก่อนดำเนินการ");
+      setErrorMsg("กรุณาเลือกไซส์เสื้อก่อนดำเนินการ");
       return;
     }
+
+    // 2. Mandatory Options Validation (if product has active option groups)
+    if (hasActiveOptions && product.options) {
+      for (const optGroup of product.options) {
+        if (optGroup.is_active && optGroup.group) {
+          if (!selectedOptions[optGroup.group.id]) {
+            toast.error(`กรุณาเลือกตัวเลือก: ${optGroup.group.name}`);
+            setErrorMsg(`กรุณาเลือกตัวเลือก: ${optGroup.group.name}`);
+            return;
+          }
+        }
+      }
+    }
+
+    // 3. Mandatory Custom Name Validation (if custom name is enabled)
+    if (allowCustomName && !customName.trim()) {
+      toast.error("กรุณากรอกชื่อหลังเสื้อ (หากไม่ต้องการสกรีนให้พิมพ์ - หรือ NO)");
+      setErrorMsg("กรุณากรอกชื่อหลังเสื้อ (หากไม่ต้องการสกรีนให้พิมพ์ - หรือ NO)");
+      return;
+    }
+
+    // 4. Mandatory Custom Number Validation (if custom number is enabled)
+    if (allowCustomNumber && !customNumber.trim()) {
+      toast.error("กรุณากรอกเบอร์หลังเสื้อ (หากไม่ต้องการสกรีนให้พิมพ์ - หรือ 00)");
+      setErrorMsg("กรุณากรอกเบอร์หลังเสื้อ (หากไม่ต้องการสกรีนให้พิมพ์ - หรือ 00)");
+      return;
+    }
+
+    // 5. Mandatory Sport Type Validation
+    if (!selectedSport) {
+      toast.error("กรุณาเลือกประเภทกีฬาที่ลงแข่งขัน");
+      setErrorMsg("กรุณาเลือกประเภทกีฬาที่ลงแข่งขัน");
+      return;
+    }
+
+    // Note is Optional (ยกเว้นหมายเหตุไม่ต้องบังคับกรอก)
 
     setSubmitting(true);
     setErrorMsg("");
@@ -114,10 +189,14 @@ export function ProductDetailInteractive({ product, profile }: Props) {
 
       if (!res.success) {
         toast.error(res.error || "เกิดข้อผิดพลาดในการเพิ่มลงตะกร้า");
+        setErrorMsg(res.error || "เกิดข้อผิดพลาดในการเพิ่มลงตะกร้า");
         if (res.requireLogin) {
           router.push("/login");
         }
       } else {
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("app:cart-changed"));
+        }
         toast.success("เพิ่มสินค้าลงในตะกร้าเรียบร้อยแล้ว!");
         router.push("/cart");
         router.refresh();
@@ -148,133 +227,139 @@ export function ProductDetailInteractive({ product, profile }: Props) {
         
         {/* Left Column: Image Gallery Carousel */}
         <div className="lg:col-span-6 space-y-6">
+          <Card className="overflow-hidden border-slate-200 bg-white shadow-xs rounded-3xl">
+            <CardContent className="p-4 sm:p-6 space-y-4">
+              
+              {/* Main Image Stage */}
+              <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-slate-50 border border-slate-100 group">
+                {selectedImage ? (
+                  <Image
+                    src={selectedImage}
+                    alt={product.name}
+                    fill
+                    className="object-contain p-4 group-hover:scale-105 transition-transform duration-300"
+                    priority
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-slate-400">
+                    <Shirt className="h-20 w-20 stroke-[1]" />
+                  </div>
+                )}
 
-          {/* Main Product Image View with Zoom / Multi-image */}
-          <div className="relative aspect-square w-full bg-[#F8FAFC] rounded-3xl border border-slate-200/80 overflow-hidden shadow-xs group flex items-center justify-center p-3">
-            {selectedImage ? (
-              <img
-                src={selectedImage}
-                alt={product.name}
-                className="max-h-full max-w-full object-contain p-2 transition-transform duration-300 group-hover:scale-105"
-              />
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full text-slate-400">
-                <Shirt className="h-20 w-20 stroke-[1]" />
-                <span className="text-sm mt-2 font-medium">ไม่มีรูปภาพ</span>
-              </div>
-            )}
-
-            {selectedImage && (
-              <button
-                onClick={() => setIsZoomOpen(true)}
-                className="absolute bottom-3 right-3 bg-white/90 backdrop-blur-xs text-slate-800 px-3 py-1.5 rounded-xl shadow-md hover:bg-white transition-all flex items-center gap-1.5 text-xs font-semibold border border-slate-200/60"
-              >
-                <Maximize2 className="h-4 w-4 text-blue-600" />
-                <span>ขยายรูปใหญ่</span>
-              </button>
-            )}
-          </div>
-
-          {/* Multi-Image Thumbnails Gallery Carousel */}
-          {images.length > 0 && (
-            <div className="space-y-2">
-              <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                <Images className="h-4 w-4 text-blue-600" />
-                <span>รูปภาพสินค้าหลายมุมมอง ({images.length} รูป)</span>
-              </span>
-
-              <div className="flex items-center gap-3 overflow-x-auto pb-2">
-                {images.map((img) => (
+                {/* Zoom preview button */}
+                {selectedImage && (
                   <button
-                    key={img.id}
-                    onClick={() => setSelectedImage(img.image_url)}
-                    className={`relative h-20 w-20 flex-shrink-0 rounded-2xl border-2 overflow-hidden bg-[#F8FAFC] transition-all p-1 flex items-center justify-center ${
-                      selectedImage === img.image_url
-                        ? "border-blue-600 ring-2 ring-blue-500/20 scale-105"
-                        : "border-slate-200 hover:border-slate-300 opacity-80"
-                    }`}
+                    onClick={() => setIsZoomOpen(true)}
+                    className="absolute bottom-3 right-3 p-2 rounded-xl bg-white/80 backdrop-blur-xs text-slate-700 hover:bg-white shadow-xs border border-slate-200"
+                    title="ขยายรูปภาพ"
                   >
-                    <img src={img.image_url} alt={img.image_type || "thumbnail"} className="max-h-full max-w-full object-contain" />
-                    <span className="absolute bottom-0 inset-x-0 bg-slate-900/80 text-[9px] text-white text-center font-bold uppercase py-0.5">
-                      {img.image_type}
-                    </span>
+                    <Maximize2 className="h-4 w-4" />
                   </button>
-                ))}
+                )}
               </div>
-            </div>
-          )}
+
+              {/* Thumbnails row */}
+              {images.length > 1 && (
+                <div className="flex items-center gap-2 overflow-x-auto pb-1 pt-1">
+                  {images.map((img) => {
+                    const isSelected = selectedImage === img.image_url;
+                    return (
+                      <button
+                        key={img.id}
+                        type="button"
+                        onClick={() => setSelectedImage(img.image_url)}
+                        className={`relative h-16 w-16 shrink-0 rounded-xl overflow-hidden border-2 transition-all ${
+                          isSelected
+                            ? "border-blue-600 ring-2 ring-blue-100 shadow-xs"
+                            : "border-slate-200 hover:border-slate-300 opacity-70 hover:opacity-100"
+                        }`}
+                      >
+                        <Image
+                          src={img.image_url}
+                          alt="Thumbnail"
+                          fill
+                          className="object-contain p-1"
+                        />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Interactive SVG Shirt Live Mockup Preview */}
+              <div className="pt-2 border-t border-slate-100">
+                <ShirtPreview
+                  imageUrl={selectedImage}
+                  name={customName}
+                  number={customNumber}
+                  productName={product.name}
+                />
+              </div>
+
+            </CardContent>
+          </Card>
         </div>
 
-        {/* Right Column: Product Specs, Size, Options, Customization & Add to Cart */}
+        {/* Right Column: Customization & Ordering Form */}
         <div className="lg:col-span-6 space-y-6">
-          <Card className="border-slate-200 shadow-md bg-white rounded-3xl">
-            <CardContent className="p-6 md:p-8 space-y-6">
+          <Card className="border-slate-200 bg-white rounded-3xl shadow-xs">
+            <CardContent className="p-6 sm:p-8 space-y-6">
               
-              {/* Category & Title */}
-              <div>
-                <div className="flex items-center justify-between">
-                  <Badge variant="secondary" className="mb-2">
-                    {product.category || "เสื้อกีฬาสาขา"}
-                  </Badge>
-
-                  {/* Size Chart Modal Trigger Button */}
-                  <button
-                    onClick={() => setIsSizeChartOpen(true)}
-                    className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:underline bg-blue-50 px-3 py-1.5 rounded-xl border border-blue-200"
-                  >
-                    <Ruler className="h-4 w-4" />
-                    <span>ตารางไซส์เสื้อ (Size Chart)</span>
-                  </button>
-                </div>
-
-                <h1 className="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">
+              {/* Product Header */}
+              <div className="space-y-2 border-b border-slate-100 pb-4">
+                <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
                   {product.name}
                 </h1>
-                <p className="text-sm text-slate-500 mt-2 leading-relaxed">
-                  {product.description || "เสื้อกีฬาสาขาคุณภาพสูง ทนทาน ออกแบบให้กระชับสวมใส่สบาย"}
-                </p>
+                {product.description && (
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    {product.description}
+                  </p>
+                )}
               </div>
 
-              {/* Price Display */}
-              <div className="p-4 rounded-2xl bg-blue-50/60 border border-blue-100 flex items-center justify-between">
+              {/* Price Tag Box */}
+              <div className="flex items-center justify-between p-4 bg-blue-50/60 rounded-2xl border border-blue-100">
                 <div>
-                  <span className="text-xs font-semibold text-slate-500 block">ราคาต่อชิ้น</span>
-                  <span className="text-2xl font-extrabold text-blue-600">
+                  <span className="text-xs text-blue-600 font-semibold block">ราคาต่อชิ้น</span>
+                  <span className="text-2xl font-black text-blue-700">
                     ฿{unitPrice.toLocaleString()}
                   </span>
-                  {sizeAdjustment > 0 || optionsAdjustment > 0 ? (
-                    <span className="text-[11px] text-slate-500 block mt-0.5">
+                  {sizeAdjustment > 0 || optionsAdjustment > 0 || nameAdjustment > 0 || numberAdjustment > 0 ? (
+                    <span className="text-[11px] text-slate-500 block">
                       (ราคาพื้นฐาน ฿{basePrice}
-                      {sizeAdjustment > 0 && ` + ไซส์ ฿${sizeAdjustment}`}
-                      {optionsAdjustment > 0 && ` + สกรีน ฿${optionsAdjustment}`})
+                      {sizeAdjustment > 0 ? ` + ไซส์ ฿${sizeAdjustment}` : ""}
+                      {optionsAdjustment > 0 ? ` + ตัวเลือก ฿${optionsAdjustment}` : ""}
+                      {nameAdjustment > 0 ? ` + ชื่อ ฿${nameAdjustment}` : ""}
+                      {numberAdjustment > 0 ? ` + เบอร์ ฿${numberAdjustment}` : ""}
+                      )
                     </span>
                   ) : null}
                 </div>
 
-                <Badge variant="success" className="text-xs px-3 py-1">
+                <Badge variant="success" className="text-xs px-3 py-1 font-bold">
                   เปิดรับพรีออเดอร์
                 </Badge>
               </div>
 
               {/* Error / Success Feedback */}
               {errorMsg && (
-                <div className="p-3 text-xs bg-red-50 text-red-600 border border-red-200 rounded-xl flex items-center gap-2">
+                <div className="p-3 text-xs bg-red-50 text-red-600 border border-red-200 rounded-xl flex items-center gap-2 animate-in fade-in">
                   <AlertCircle className="h-4 w-4 shrink-0" />
-                  <span>{errorMsg}</span>
+                  <span className="font-semibold">{errorMsg}</span>
                 </div>
               )}
               {successMsg && (
-                <div className="p-3 text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl flex items-center gap-2">
+                <div className="p-3 text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl flex items-center gap-2 animate-in fade-in">
                   <Check className="h-4 w-4 shrink-0" />
                   <span>{successMsg}</span>
                 </div>
               )}
 
-              {/* 1. SIZE SELECTION */}
+              {/* STEP 1: SIZE SELECTION (MANDATORY *) */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
-                    1. เลือกไซส์เสื้อ (Size) *
+                    {sizeStep}. เลือกไซส์เสื้อ (Size) <span className="text-red-500 font-bold">*</span>
                   </label>
                   <button
                     onClick={() => setIsSizeChartOpen(true)}
@@ -293,7 +378,11 @@ export function ProductDetailInteractive({ product, profile }: Props) {
                       return (
                         <button
                           key={s.id}
-                          onClick={() => setSelectedSize(s)}
+                          type="button"
+                          onClick={() => {
+                            setSelectedSize(s);
+                            setErrorMsg("");
+                          }}
                           className={`flex flex-col items-center justify-center p-3 rounded-xl border font-semibold text-xs transition-all ${
                             isSelected
                               ? "border-blue-600 bg-blue-600 text-white shadow-sm"
@@ -313,11 +402,11 @@ export function ProductDetailInteractive({ product, profile }: Props) {
                 )}
               </div>
 
-              {/* 2. DYNAMIC OPTIONS */}
-              {product.options && product.options.length > 0 && (
+              {/* STEP 2: DYNAMIC OPTIONS (If Active Option Groups Exist - MANDATORY *) */}
+              {hasActiveOptions && product.options && (
                 <div className="space-y-4 pt-2 border-t border-slate-100">
                   <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
-                    2. ตัวเลือกเพิ่มเติม (Custom Options)
+                    {optionsStep}. ตัวเลือกเพิ่มเติม (Custom Options) <span className="text-red-500 font-bold">*</span>
                   </label>
                   {product.options.map((optGroup) => {
                     const group = optGroup.group;
@@ -327,7 +416,7 @@ export function ProductDetailInteractive({ product, profile }: Props) {
                       <div key={group.id} className="space-y-2">
                         <span className="text-xs font-semibold text-slate-700 flex items-center gap-1">
                           <Tag className="h-3.5 w-3.5 text-blue-500" />
-                          <span>{group.name}</span>
+                          <span>{group.name} <span className="text-red-500">*</span></span>
                         </span>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           {group.values?.map((val) => {
@@ -336,12 +425,13 @@ export function ProductDetailInteractive({ product, profile }: Props) {
                               <button
                                 key={val.id}
                                 type="button"
-                                onClick={() =>
+                                onClick={() => {
                                   setSelectedOptions((prev) => ({
                                     ...prev,
                                     [group.id]: val,
-                                  }))
-                                }
+                                  }));
+                                  setErrorMsg("");
+                                }}
                                 className={`flex items-center justify-between p-3 rounded-xl border text-xs font-medium transition-all ${
                                   isValSelected
                                     ? "border-blue-600 bg-blue-50 text-blue-700 font-semibold"
@@ -364,27 +454,38 @@ export function ProductDetailInteractive({ product, profile }: Props) {
                 </div>
               )}
 
-              {/* 3. CUSTOM SHIRT NAME & NUMBER INPUTS (Controlled by Admin Toggles) */}
+              {/* STEP: CUSTOM SHIRT NAME & NUMBER INPUTS (MANDATORY *) */}
               {(allowCustomName || allowCustomNumber) && (
                 <div className="space-y-4 pt-2 border-t border-slate-100">
-                  <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
-                    3. ข้อมูลสกรีนชื่อและเบอร์เสื้อ
-                  </label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
+                      {customStep}. ข้อมูลสกรีนชื่อและเบอร์เสื้อ <span className="text-red-500 font-bold">*</span>
+                    </label>
+                    <span className="text-[11px] text-slate-400 font-medium">
+                      (หากไม่ต้องการสกรีนให้พิมพ์ - หรือ NO)
+                    </span>
+                  </div>
                   
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {allowCustomName && (
                       <div className="space-y-1.5">
                         <div className="flex justify-between items-center text-xs">
-                          <label className="font-semibold text-slate-700">ชื่อหลังเสื้อ (Custom Name)</label>
+                          <label className="font-semibold text-slate-700">
+                            ชื่อหลังเสื้อ (Custom Name) <span className="text-red-500">*</span>
+                          </label>
                           <span className="text-[11px] font-bold text-blue-600">
                             {customNamePrice > 0 ? `+฿${customNamePrice}` : "(สกรีนฟรี)"}
                           </span>
                         </div>
                         <Input
-                          placeholder="เช่น OAT"
+                          placeholder="เช่น OAT (หรือ - หากไม่สกรีน)"
                           value={customName}
-                          onChange={(e) => setCustomName(e.target.value.toUpperCase())}
+                          onChange={(e) => {
+                            setCustomName(e.target.value.toUpperCase());
+                            setErrorMsg("");
+                          }}
                           maxLength={15}
+                          required
                         />
                       </div>
                     )}
@@ -392,72 +493,86 @@ export function ProductDetailInteractive({ product, profile }: Props) {
                     {allowCustomNumber && (
                       <div className="space-y-1.5">
                         <div className="flex justify-between items-center text-xs">
-                          <label className="font-semibold text-slate-700">เบอร์หลังเสื้อ (Custom Number)</label>
+                          <label className="font-semibold text-slate-700">
+                            เบอร์หลังเสื้อ (Custom Number) <span className="text-red-500">*</span>
+                          </label>
                           <span className="text-[11px] font-bold text-blue-600">
                             {customNumberPrice > 0 ? `+฿${customNumberPrice}` : "(สกรีนฟรี)"}
                           </span>
                         </div>
                         <Input
-                          placeholder="เช่น 07"
+                          placeholder="เช่น 07 (หรือ - หากไม่สกรีน)"
                           value={customNumber}
-                          onChange={(e) => setCustomNumber(e.target.value)}
+                          onChange={(e) => {
+                            setCustomNumber(e.target.value);
+                            setErrorMsg("");
+                          }}
                           maxLength={3}
+                          required
                         />
                       </div>
                     )}
                   </div>
-
-                  {/* Sport Selection */}
-                  <div className="space-y-2 pt-2 border-t border-slate-100">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
-                        ประเภทกีฬาที่ลงแข่งขัน (Sport Type)
-                      </label>
-                      <span className="text-[11px] text-slate-400 font-medium">
-                        (สำหรับแยกประเภทแจกเสื้อ)
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                      {SPORT_TYPES.map((sport) => {
-                        const isSportSelected = selectedSport === sport;
-                        return (
-                          <button
-                            key={sport}
-                            type="button"
-                            onClick={() => setSelectedSport(sport)}
-                            className={`flex items-center justify-between p-2.5 rounded-xl border text-xs font-bold transition-all ${
-                              isSportSelected
-                                ? "border-blue-600 bg-blue-50 text-blue-700 shadow-2xs"
-                                : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
-                            }`}
-                          >
-                            <span>{sport}</span>
-                            {isSportSelected && <Check className="h-3.5 w-3.5 text-blue-600 shrink-0" />}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Note Field (Order Item Note) */}
-                  <div className="space-y-1.5 pt-2">
-                    <label className="text-xs font-semibold text-slate-700">
-                      หมายเหตุเพิ่มเติม (Note)
-                    </label>
-                    <Input
-                      placeholder="เช่น ระบุชื่อเพื่อน หรือรายละเอียดเพิ่มเติม"
-                      value={note}
-                      onChange={(e) => setNote(e.target.value)}
-                    />
-                    <p className="text-[11px] text-slate-400">
-                      * หมายเหตุนี้ใช้กำกับสำหรับเสื้อชิ้นนี้โดยเฉพาะ
-                    </p>
-                  </div>
                 </div>
               )}
 
-              {/* 4. QUANTITY & TOTAL PRICE SUMMARY */}
+              {/* STEP: SPORT SELECTION (MANDATORY *) */}
+              <div className="space-y-2 pt-2 border-t border-slate-100">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
+                    {sportStep}. ประเภทกีฬาที่ลงแข่งขัน (Sport Type) <span className="text-red-500 font-bold">*</span>
+                  </label>
+                  <span className="text-[11px] text-slate-400 font-medium">
+                    (สำหรับแยกประเภทแจกเสื้อ)
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {SPORT_TYPES.map((sport) => {
+                    const isSportSelected = selectedSport === sport;
+                    return (
+                      <button
+                        key={sport}
+                        type="button"
+                        onClick={() => {
+                          setSelectedSport(sport);
+                          setErrorMsg("");
+                        }}
+                        className={`flex items-center justify-between p-2.5 rounded-xl border text-xs font-bold transition-all ${
+                          isSportSelected
+                            ? "border-blue-600 bg-blue-50 text-blue-700 shadow-2xs"
+                            : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
+                        }`}
+                      >
+                        <span>{sport}</span>
+                        {isSportSelected && <Check className="h-3.5 w-3.5 text-blue-600 shrink-0" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* STEP: NOTE FIELD (OPTIONAL - ไม่ต้องบังคับกรอก) */}
+              <div className="space-y-1.5 pt-2 border-t border-slate-100">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
+                    {noteStep}. หมายเหตุเพิ่มเติม (Note)
+                  </label>
+                  <span className="text-[11px] text-slate-400 font-medium">
+                    (ไม่บังคับกรอก)
+                  </span>
+                </div>
+                <Input
+                  placeholder="เช่น ระบุชื่อเพื่อน หรือรายละเอียดเพิ่มเติม (ไม่บังคับ)"
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                />
+                <p className="text-[11px] text-slate-400">
+                  * หมายเหตุนี้ใช้กำกับสำหรับเสื้อชิ้นนี้โดยเฉพาะ
+                </p>
+              </div>
+
+              {/* QUANTITY & STRICT GRAND TOTAL SUMMARY */}
               <div className="pt-4 border-t border-slate-100 space-y-4">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
@@ -485,10 +600,12 @@ export function ProductDetailInteractive({ product, profile }: Props) {
                   </div>
                 </div>
 
-                {/* Total Summary */}
-                <div className="p-4 rounded-2xl bg-slate-900 text-white flex items-center justify-between shadow-lg">
+                {/* Total Summary Box with Complete Breakdown */}
+                <div className="p-4 rounded-2xl bg-slate-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg">
                   <div>
-                    <span className="text-xs text-slate-400 block font-medium">ราคารวมสุทธิ (Grand Total)</span>
+                    <span className="text-xs text-slate-400 block font-medium">
+                      ราคารวมสุทธิ ({quantity} ตัว x ฿{unitPrice.toLocaleString()})
+                    </span>
                     <span className="text-2xl font-black text-blue-400">
                       ฿{totalPrice.toLocaleString()}
                     </span>
@@ -498,7 +615,7 @@ export function ProductDetailInteractive({ product, profile }: Props) {
                     onClick={handleAddToCart}
                     isLoading={submitting}
                     disabled={!selectedSize}
-                    className="bg-blue-600 hover:bg-blue-500 text-white rounded-xl shadow-md"
+                    className="bg-blue-600 hover:bg-blue-500 text-white rounded-xl shadow-md font-bold h-11 px-6 text-sm"
                   >
                     <ShoppingCart className="h-4 w-4 mr-1.5" />
                     <span>เพิ่มลงตะกร้า</span>
