@@ -53,12 +53,19 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
 
     const fetchLatestProductionData = async () => {
       try {
-        const [freshSummary, freshOrders] = await Promise.all([
-          getProductionSummary(),
-          getAllAdminOrders(),
-        ]);
-        setSummary(freshSummary);
-        setOrders(freshOrders);
+        const { data } = await supabase
+          .from("orders")
+          .select(`
+            *,
+            items:order_items(*),
+            payment:payments(*),
+            profile:profiles(*)
+          `)
+          .order("created_at", { ascending: false });
+
+        if (data) {
+          setOrders(data as Order[]);
+        }
       } catch (e) {}
     };
 
@@ -78,13 +85,29 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
           fetchLatestProductionData();
         }
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "payments" },
+        () => {
+          fetchLatestProductionData();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "profiles" },
+        () => {
+          fetchLatestProductionData();
+        }
+      )
       .subscribe();
 
     window.addEventListener("app:order-changed", fetchLatestProductionData);
+    window.addEventListener("app:cart-changed", fetchLatestProductionData);
 
     return () => {
       supabase.removeChannel(channel);
       window.removeEventListener("app:order-changed", fetchLatestProductionData);
+      window.removeEventListener("app:cart-changed", fetchLatestProductionData);
     };
   }, []);
 
@@ -106,6 +129,7 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
   }> = [];
 
   orders.forEach((o) => {
+    if (o.status === "CANCELLED") return;
     o.items?.forEach((item) => {
       const sport = extractSportType(item);
       const cleanNote = cleanNoteWithoutSport(item.note);
@@ -126,6 +150,24 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
       });
     });
   });
+
+  // Calculate dynamic size summary directly from productionList for 100% Realtime consistency
+  const sizeMap: Record<string, number> = {};
+  productionList.forEach((p) => {
+    const size = p.sizeName || "N/A";
+    sizeMap[size] = (sizeMap[size] || 0) + 1;
+  });
+  const standardSizeOrder = ["3XS", "2XS", "XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL", "6XL", "7XL", "8XL", "FREE SIZE", "FREESIZE", "F"];
+  const dynamicSizeSummary = Object.entries(sizeMap)
+    .sort(([a], [b]) => {
+      const idxA = standardSizeOrder.indexOf(a.toUpperCase());
+      const idxB = standardSizeOrder.indexOf(b.toUpperCase());
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.localeCompare(b);
+    })
+    .map(([size_name, count]) => ({ size_name, count }));
 
   // Calculate Sport Breakdown Summary for distributors
   const sportSummary = SPORT_TYPES.map((sport) => {
@@ -430,7 +472,7 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 text-center">
-              {summary.sizeSummary.map((s) => (
+              {dynamicSizeSummary.map((s) => (
                 <button
                   key={s.size_name}
                   onClick={() => setSelectedSizeFilter(selectedSizeFilter === s.size_name ? "ALL" : s.size_name)}
