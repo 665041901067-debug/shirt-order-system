@@ -93,6 +93,7 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
     id: string;
     orderNumber: string;
     studentName: string;
+    nickname: string;
     studentId: string;
     phone: string;
     productName: string;
@@ -112,9 +113,10 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
         id: item.id,
         orderNumber: o.order_number,
         studentName: `${o.profile?.first_name || ""} ${o.profile?.last_name || ""}`.trim() || "ไม่ระบุ",
+        nickname: o.profile?.nickname || "-",
         studentId: o.profile?.student_id || "-",
         phone: o.profile?.phone || "-",
-        productName: item.product_name_snapshot,
+        productName: item.product_name_snapshot || "เสื้อกีฬา",
         sizeName: item.size_name_snapshot || "N/A",
         customName: item.custom_name || "-",
         customNumber: item.custom_number || "-",
@@ -141,6 +143,8 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
     const q = search.toLowerCase();
     const matchesSearch =
       item.studentName.toLowerCase().includes(q) ||
+      item.nickname.toLowerCase().includes(q) ||
+      item.productName.toLowerCase().includes(q) ||
       item.studentId.includes(q) ||
       item.customName.toLowerCase().includes(q) ||
       item.customNumber.includes(q) ||
@@ -179,15 +183,17 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
     
     jobSheet.columns = [
       { header: "ลำดับ", key: "no", width: 8 },
-      { header: "ประเภทกีฬา", key: "sport", width: 20 },
+      { header: "รายการสินค้า / แบบเสื้อ", key: "product_name", width: 30 },
+      { header: "ประเภทกีฬา", key: "sport", width: 22 },
       { header: "ไซส์เสื้อ (Size)", key: "size", width: 15 },
       { header: "ชื่อหลังเสื้อ (Custom Name)", key: "custom_name", width: 25 },
       { header: "เบอร์หลังเสื้อ (Custom Number)", key: "custom_number", width: 18 },
       { header: "ชื่อผู้สั่งซื้อ", key: "student_name", width: 25 },
-      { header: "รหัสนักศึกษา", key: "student_id", width: 15 },
-      { header: "เบอร์โทรศัพท์", key: "phone", width: 15 },
+      { header: "ชื่อเล่น", key: "nickname", width: 16 },
+      { header: "รหัสนักศึกษา", key: "student_id", width: 16 },
+      { header: "เบอร์โทรศัพท์", key: "phone", width: 16 },
       { header: "หมายเหตุ", key: "note", width: 25 },
-      { header: "เลขที่ออเดอร์", key: "order_number", width: 15 },
+      { header: "เลขที่ออเดอร์", key: "order_number", width: 16 },
     ];
 
     // Style Header Row
@@ -203,11 +209,13 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
     productionList.forEach((item, index) => {
       const row = jobSheet.addRow({
         no: index + 1,
+        product_name: item.productName,
         sport: item.sportType,
         size: item.sizeName,
         custom_name: item.customName,
         custom_number: item.customNumber,
         student_name: item.studentName,
+        nickname: item.nickname,
         student_id: item.studentId,
         phone: item.phone,
         note: item.note,
@@ -218,13 +226,15 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
       row.getCell("no").alignment = { horizontal: "center" };
       row.getCell("sport").alignment = { horizontal: "center" };
       row.getCell("size").alignment = { horizontal: "center" };
+      row.getCell("nickname").alignment = { horizontal: "center" };
       row.getCell("custom_number").alignment = { horizontal: "center" };
     });
 
-    // Sheet 2: Size Quantity Summary Table (สำหรับสรุปตัดเย็บผ้า)
+    // Sheet 2: Size Quantity Summary Table (สำหรับสรุปตัดเย็บผ้า แยกตามแบบเสื้อและไซส์)
     const summarySheet = workbook.addWorksheet("สรุปยอดตัดเย็บตามไซส์");
     summarySheet.columns = [
-      { header: "ไซส์เสื้อ (Size)", key: "size", width: 20 },
+      { header: "รายการสินค้า / แบบเสื้อ", key: "product_name", width: 30 },
+      { header: "ไซส์เสื้อ (Size)", key: "size", width: 18 },
       { header: "จำนวนที่ต้องตัดเย็บ (ตัว)", key: "count", width: 25 },
       { header: "จำนวนสกรีนชื่อ (ตัว)", key: "name_count", width: 25 },
       { header: "จำนวนสกรีนเบอร์ (ตัว)", key: "number_count", width: 25 },
@@ -238,21 +248,38 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
       fgColor: { argb: "FF2563EB" },
     };
 
-    summary.sizeSummary.forEach((s) => {
-      const nameCount = productionList.filter((p) => p.sizeName === s.size_name && p.customName !== "-").length;
-      const numberCount = productionList.filter((p) => p.sizeName === s.size_name && p.customNumber !== "-").length;
+    // Group by product and size
+    const productSizeMap: Record<string, { productName: string; sizeName: string; count: number; nameCount: number; numberCount: number }> = {};
+    productionList.forEach((p) => {
+      const key = `${p.productName}___${p.sizeName}`;
+      if (!productSizeMap[key]) {
+        productSizeMap[key] = {
+          productName: p.productName,
+          sizeName: p.sizeName,
+          count: 0,
+          nameCount: 0,
+          numberCount: 0,
+        };
+      }
+      productSizeMap[key].count += 1;
+      if (p.customName !== "-") productSizeMap[key].nameCount += 1;
+      if (p.customNumber !== "-") productSizeMap[key].numberCount += 1;
+    });
 
+    Object.values(productSizeMap).forEach((entry) => {
       summarySheet.addRow({
-        size: s.size_name,
-        count: s.count,
-        name_count: nameCount,
-        number_count: numberCount,
+        product_name: entry.productName,
+        size: entry.sizeName,
+        count: entry.count,
+        name_count: entry.nameCount,
+        number_count: entry.numberCount,
       });
     });
 
     // Add Total Row for Size Sheet
     const totalRow = summarySheet.addRow({
-      size: "รวมทั้งหมด (TOTAL)",
+      product_name: "รวมทั้งหมด (TOTAL)",
+      size: "-",
       count: productionList.length,
       name_count: productionList.filter((p) => p.customName !== "-").length,
       number_count: productionList.filter((p) => p.customNumber !== "-").length,
@@ -518,6 +545,11 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
                   </span>
                 </div>
 
+                <div className="text-xs font-bold text-slate-900 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                  <span className="text-[10px] text-slate-400 block font-semibold">แบบเสื้อ:</span>
+                  <span>{item.productName}</span>
+                </div>
+
                 <div className="grid grid-cols-2 gap-2 text-xs bg-blue-50/60 p-3 rounded-xl border border-blue-100">
                   <div>
                     <span className="text-[10px] text-slate-400 block font-semibold">ชื่อสกรีนหลังเสื้อ</span>
@@ -534,7 +566,9 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
                 </div>
 
                 <div className="text-xs space-y-1 text-slate-700 pt-1">
-                  <p><strong>ผู้สั่งซื้อ:</strong> {item.studentName} ({item.studentId})</p>
+                  <p>
+                    <strong>ผู้สั่งซื้อ:</strong> {item.studentName} {item.nickname !== "-" && <span className="text-blue-600 font-bold">({item.nickname})</span>} ({item.studentId})
+                  </p>
                   {item.note !== "-" && <p className="text-amber-700"><strong>หมายเหตุ:</strong> {item.note}</p>}
                 </div>
               </Card>
@@ -560,6 +594,7 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
                 <thead className="bg-slate-100/70 border-b border-slate-200 text-slate-800 font-bold uppercase tracking-wider">
                   <tr>
                     <th className="p-3.5 text-center">ลำดับ</th>
+                    <th className="p-3.5">รายการสินค้า / แบบเสื้อ</th>
                     <th className="p-3.5 text-center">ประเภทกีฬา</th>
                     <th className="p-3.5 text-center">ไซส์เสื้อ</th>
                     <th className="p-3.5">ชื่อหลังเสื้อ (Custom Name)</th>
@@ -575,6 +610,10 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
                     <tr key={item.id} className="hover:bg-blue-50/30 transition-colors">
                       <td className="p-3.5 text-center font-bold text-slate-400 font-mono">
                         {idx + 1}
+                      </td>
+
+                      <td className="p-3.5 font-semibold text-slate-900">
+                        {item.productName}
                       </td>
 
                       <td className="p-3.5 text-center">
@@ -598,7 +637,12 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
                       </td>
 
                       <td className="p-3.5 text-slate-900 font-bold">
-                        {item.studentName}
+                        <span>{item.studentName}</span>
+                        {item.nickname !== "-" && (
+                          <span className="text-blue-600 font-bold ml-1.5">
+                            ({item.nickname})
+                          </span>
+                        )}
                       </td>
 
                       <td className="p-4 font-mono text-slate-600">

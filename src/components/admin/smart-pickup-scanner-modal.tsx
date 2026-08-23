@@ -255,7 +255,7 @@ export function SmartPickupScannerModal({ isOpen, onClose, orders, onOrderComple
               <div className="bg-white p-4 rounded-2xl border border-emerald-200 text-xs text-left space-y-1.5 shadow-xs">
                 <p className="font-mono font-extrabold text-blue-600 text-sm">ออเดอร์: #{successOrder.order_number}</p>
                 <p className="font-bold text-slate-900 text-xs">
-                  ผู้รับ: {successOrder.profile?.first_name} {successOrder.profile?.last_name} ({successOrder.profile?.student_id})
+                  ผู้รับ: {successOrder.profile?.first_name} {successOrder.profile?.last_name} {successOrder.profile?.nickname && <span className="text-blue-600 font-bold">({successOrder.profile.nickname})</span>} ({successOrder.profile?.student_id})
                 </p>
                 <div className="text-slate-700 text-xs space-y-1 pt-1 border-t border-emerald-100">
                   <span className="font-bold block text-slate-800">รายการเสื้อ:</span>

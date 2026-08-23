@@ -181,11 +181,14 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
 
   // Filter Orders
   const filteredOrders = orders.filter((o) => {
+    const q = search.toLowerCase();
     const matchesSearch =
-      o.order_number.toLowerCase().includes(search.toLowerCase()) ||
-      o.profile?.first_name?.toLowerCase().includes(search.toLowerCase()) ||
-      o.profile?.last_name?.toLowerCase().includes(search.toLowerCase()) ||
-      o.profile?.student_id?.includes(search);
+      o.order_number.toLowerCase().includes(q) ||
+      o.profile?.first_name?.toLowerCase().includes(q) ||
+      o.profile?.last_name?.toLowerCase().includes(q) ||
+      o.profile?.nickname?.toLowerCase().includes(q) ||
+      o.profile?.student_id?.includes(q) ||
+      o.items?.some((i) => i.product_name_snapshot.toLowerCase().includes(q));
 
     const matchesStatus =
       selectedStatusFilter === "ALL" ||
@@ -806,26 +809,39 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
                         <td className="p-4">
                           <span className="font-bold text-slate-900 block">
                             {order.profile?.first_name} {order.profile?.last_name}
+                            {order.profile?.nickname && (
+                              <span className="text-blue-600 font-bold ml-1.5">
+                                ({order.profile.nickname})
+                              </span>
+                            )}
                           </span>
-                          <span className="text-[11px] text-slate-500 font-mono block">
+                          <span className="text-[11px] text-slate-500 font-mono block mt-0.5">
                             รหัส: {order.profile?.student_id || "-"} ({order.profile?.academic_year || "ปี 1"})
                           </span>
                         </td>
 
                         <td className="p-4">
-                          <span className="font-semibold text-slate-800 block">
+                          <span className="font-bold text-slate-800 block text-xs">
                             {order.items?.length || 0} รายการ
                           </span>
-                          <div className="text-[11px] text-slate-500 space-y-1 mt-0.5 max-w-[260px]">
+                          <div className="text-[11px] text-slate-700 space-y-1.5 mt-1 max-w-[280px]">
                             {order.items?.map((i) => {
                               const sport = extractSportType(i);
                               return (
-                                <div key={i.id} className="flex flex-wrap items-center gap-1">
-                                  <span className="font-medium text-slate-700">{i.product_name_snapshot} ({i.size_name_snapshot})</span>
-                                  <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border ${getSportBadgeColor(sport)}`}>
-                                    {sport}
-                                  </span>
-                                  {i.custom_name && <span className="text-blue-600 font-mono text-[10px]">[{i.custom_name}]</span>}
+                                <div key={i.id} className="p-1.5 bg-slate-50 rounded-lg border border-slate-100 space-y-0.5">
+                                  <div className="flex items-center justify-between gap-1">
+                                    <span className="font-bold text-slate-900 leading-tight">• {i.product_name_snapshot}</span>
+                                    <Badge variant="primary" size="sm" className="font-mono text-[10px] px-1.5 py-0 h-4">
+                                      {i.size_name_snapshot}
+                                    </Badge>
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-1">
+                                    <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border ${getSportBadgeColor(sport)}`}>
+                                      {sport}
+                                    </span>
+                                    {i.custom_name && <span className="text-blue-600 font-mono text-[10px] font-bold">[{i.custom_name}]</span>}
+                                    {i.custom_number && <span className="text-blue-600 font-mono text-[10px] font-bold">#{i.custom_number}</span>}
+                                  </div>
                                 </div>
                               );
                             })}
