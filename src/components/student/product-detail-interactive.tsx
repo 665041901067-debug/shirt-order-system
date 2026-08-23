@@ -5,7 +5,6 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Product, Profile, ProductSize, OptionValue } from "@/types";
 import { createClient } from "@/lib/supabase/client";
-import { ShirtPreview } from "./shirt-preview";
 import { SizeChartModal } from "./size-chart-modal";
 import { addToCart } from "@/services/cart";
 import { Button } from "@/components/ui/button";
@@ -148,15 +147,15 @@ export function ProductDetailInteractive({ product, profile }: Props) {
 
     // 3. Mandatory Custom Name Validation (if custom name is enabled)
     if (allowCustomName && !customName.trim()) {
-      toast.error("กรุณากรอกชื่อหลังเสื้อ (หากไม่ต้องการสกรีนให้พิมพ์ - หรือ NO)");
-      setErrorMsg("กรุณากรอกชื่อหลังเสื้อ (หากไม่ต้องการสกรีนให้พิมพ์ - หรือ NO)");
+      toast.error("กรุณากรอกชื่อหลังเสื้อ ");
+      setErrorMsg("กรุณากรอกชื่อหลังเสื้อ ");
       return;
     }
 
     // 4. Mandatory Custom Number Validation (if custom number is enabled)
     if (allowCustomNumber && !customNumber.trim()) {
-      toast.error("กรุณากรอกเบอร์หลังเสื้อ (หากไม่ต้องการสกรีนให้พิมพ์ - หรือ 00)");
-      setErrorMsg("กรุณากรอกเบอร์หลังเสื้อ (หากไม่ต้องการสกรีนให้พิมพ์ - หรือ 00)");
+      toast.error("กรุณากรอกเบอร์หลังเสื้อ ");
+      setErrorMsg("กรุณากรอกเบอร์หลังเสื้อ ");
       return;
     }
 
@@ -285,16 +284,6 @@ export function ProductDetailInteractive({ product, profile }: Props) {
                   })}
                 </div>
               )}
-
-              {/* Interactive SVG Shirt Live Mockup Preview */}
-              <div className="pt-2 border-t border-slate-100">
-                <ShirtPreview
-                  imageUrl={selectedImage}
-                  name={customName}
-                  number={customNumber}
-                  productName={product.name}
-                />
-              </div>
 
             </CardContent>
           </Card>
@@ -461,9 +450,7 @@ export function ProductDetailInteractive({ product, profile }: Props) {
                     <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
                       {customStep}. ข้อมูลสกรีนชื่อและเบอร์เสื้อ <span className="text-red-500 font-bold">*</span>
                     </label>
-                    <span className="text-[11px] text-slate-400 font-medium">
-                      (หากไม่ต้องการสกรีนให้พิมพ์ - หรือ NO)
-                    </span>
+
                   </div>
                   
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -478,7 +465,7 @@ export function ProductDetailInteractive({ product, profile }: Props) {
                           </span>
                         </div>
                         <Input
-                          placeholder="เช่น OAT (หรือ - หากไม่สกรีน)"
+                          placeholder="เช่น OAT"
                           value={customName}
                           onChange={(e) => {
                             setCustomName(e.target.value.toUpperCase());
@@ -501,7 +488,7 @@ export function ProductDetailInteractive({ product, profile }: Props) {
                           </span>
                         </div>
                         <Input
-                          placeholder="เช่น 07 (หรือ - หากไม่สกรีน)"
+                          placeholder="เช่น 07 "
                           value={customNumber}
                           onChange={(e) => {
                             setCustomNumber(e.target.value);
