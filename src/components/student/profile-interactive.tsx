@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Profile } from "@/types";
 import { saveProfileOnboarding, changeUserPassword } from "@/services/profile";
+import { translateThaiError } from "@/lib/thai-errors";
 import { useToast } from "@/components/ui/toast";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -111,28 +112,74 @@ export function ProfileInteractive({ initialProfile }: Props) {
 
     const cleanPhone = formData.phone.replace(/[^0-9]/g, "");
     if (cleanPhone.length !== 10) {
-      setErrorMsg("เบอร์โทรศัพท์ติดต่อต้องเป็นตัวเลข 10 หลักเท่านั้น (เช่น 0812345678)");
-      toast.error("เบอร์โทรศัพท์ติดต่อต้องเป็นตัวเลข 10 หลักเท่านั้น");
+      const msg = "เบอร์โทรศัพท์ติดต่อต้องเป็นตัวเลข 10 หลักเท่านั้น (เช่น 0812345678)";
+      setErrorMsg(msg);
+      toast.error(msg);
       return;
     }
 
     setLoading(true);
 
-    const res = await saveProfileOnboarding({
-      ...formData,
-      phone: cleanPhone,
-    });
+    try {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
 
-    setLoading(false);
+      if (user) {
+        const payload = {
+          first_name: formData.first_name.trim(),
+          last_name: formData.last_name.trim(),
+          nickname: formData.nickname.trim(),
+          student_id: formData.student_id.trim(),
+          phone: cleanPhone,
+          academic_year: formData.academic_year,
+          major: formData.major || "วิศวกรรมคอมพิวเตอร์และระบบ IoT",
+          updated_at: new Date().toISOString(),
+        };
 
-    if (res.success) {
-      setProfile((prev) => prev ? { ...prev, ...formData, phone: cleanPhone } : null);
-      setIsEditing(false);
-      toast.success("อัปเดตข้อมูลส่วนตัวเรียบร้อยแล้ว!");
-      router.refresh();
-    } else {
-      setErrorMsg(res.error || "ไม่สามารถบันทึกข้อมูลได้");
-      toast.error(res.error || "ไม่สามารถบันทึกข้อมูลได้");
+        const { error: updateErr } = await supabase
+          .from("profiles")
+          .update(payload)
+          .eq("id", user.id);
+
+        if (updateErr) {
+          const thaiErr = translateThaiError(updateErr);
+          setErrorMsg(thaiErr);
+          toast.error(thaiErr);
+          setLoading(false);
+          return;
+        }
+
+        setProfile((prev) => prev ? { ...prev, ...formData, phone: cleanPhone } : null);
+        setIsEditing(false);
+        toast.success("อัปเดตข้อมูลส่วนตัวเรียบร้อยแล้ว!");
+        router.refresh();
+        setLoading(false);
+        return;
+      }
+
+      // Fallback
+      const res = await saveProfileOnboarding({
+        ...formData,
+        phone: cleanPhone,
+      });
+
+      setLoading(false);
+
+      if (res.success) {
+        setProfile((prev) => prev ? { ...prev, ...formData, phone: cleanPhone } : null);
+        setIsEditing(false);
+        toast.success("อัปเดตข้อมูลส่วนตัวเรียบร้อยแล้ว!");
+        router.refresh();
+      } else {
+        const thaiErr = translateThaiError(res.error);
+        setErrorMsg(thaiErr);
+        toast.error(thaiErr);
+      }
+    } catch (err: any) {
+      const thaiErr = translateThaiError(err);
+      setErrorMsg(thaiErr);
+      toast.error(thaiErr);
+      setLoading(false);
     }
   };
 
@@ -141,35 +188,52 @@ export function ProfileInteractive({ initialProfile }: Props) {
     setPasswordError("");
 
     if (newPassword.length < 6) {
-      setPasswordError("รหัสผ่านใหม่ต้องมีความยาวอย่างน้อย 6 ตัวอักษร");
-      toast.error("รหัสผ่านใหม่ต้องมีความยาวอย่างน้อย 6 ตัวอักษร");
+      const msg = "รหัสผ่านใหม่ต้องมีความยาวอย่างน้อย 6 ตัวอักษร";
+      setPasswordError(msg);
+      toast.error(msg);
       return;
     }
 
     if (/[ก-๙]/.test(newPassword)) {
-      setPasswordError("รหัสผ่านต้องไม่ใช้อักษรภาษาไทย กรุณาใช้ภาษาอังกฤษ ตัวเลข หรือสัญลักษณ์");
-      toast.error("รหัสผ่านต้องไม่ใช้อักษรภาษาไทย");
+      const msg = "รหัสผ่านต้องไม่ใช้อักษรภาษาไทย กรุณาใช้ภาษาอังกฤษ ตัวเลข หรือสัญลักษณ์";
+      setPasswordError(msg);
+      toast.error(msg);
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      setPasswordError("รหัสผ่านใหม่และการยืนยันรหัสผ่านไม่ตรงกัน");
-      toast.error("รหัสผ่านใหม่และการยืนยันรหัสผ่านไม่ตรงกัน");
+      const msg = "รหัสผ่านใหม่และการยืนยันรหัสผ่านไม่ตรงกัน";
+      setPasswordError(msg);
+      toast.error(msg);
       return;
     }
 
     setPasswordLoading(true);
-    const res = await changeUserPassword(newPassword);
-    setPasswordLoading(false);
 
-    if (res.success) {
+    try {
+      const supabase = createClient();
+      const { error: pwErr } = await supabase.auth.updateUser({
+        password: newPassword.trim(),
+      });
+
+      if (pwErr) {
+        const thaiErr = translateThaiError(pwErr);
+        setPasswordError(thaiErr);
+        toast.error(thaiErr);
+        setPasswordLoading(false);
+        return;
+      }
+
       toast.success("เปลี่ยนรหัสผ่านใหม่สำเร็จเรียบร้อยแล้ว!");
       setNewPassword("");
       setConfirmPassword("");
       setIsChangingPassword(false);
-    } else {
-      setPasswordError(res.error || "ไม่สามารถเปลี่ยนรหัสผ่านได้");
-      toast.error(res.error || "ไม่สามารถเปลี่ยนรหัสผ่านได้");
+      setPasswordLoading(false);
+    } catch (err: any) {
+      const thaiErr = translateThaiError(err);
+      setPasswordError(thaiErr);
+      toast.error(thaiErr);
+      setPasswordLoading(false);
     }
   };
 

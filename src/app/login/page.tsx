@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { checkAndRegisterFirstTimeUser } from "@/services/profile";
+import { translateThaiError } from "@/lib/thai-errors";
 import { useToast } from "@/components/ui/toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -43,8 +44,9 @@ export default function LoginPage() {
 
       if (error) {
         if (error.message === "Failed to fetch" || error.message.includes("fetch")) {
-          setErrorMsg("ไม่สามารถเชื่อมต่อระบบได้: กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต");
-          toast.error("ไม่สามารถเชื่อมต่อระบบได้");
+          const msg = "ไม่สามารถเชื่อมต่อระบบได้: กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต";
+          setErrorMsg(msg);
+          toast.error(msg);
           setLoading(false);
           return;
         } else if (error.message.includes("Invalid login credentials")) {
@@ -66,12 +68,13 @@ export default function LoginPage() {
             }
           }
 
-          const errMsg = firstTimeCheck.error || "อีเมลหรือรหัสผ่านไม่ถูกต้อง โปรดตรวจสอบรหัสนักศึกษาและรหัสผ่าน";
+          const errMsg = firstTimeCheck.error || "อีเมลหรือรหัสผ่านไม่ถูกต้อง โปรดตรวจสอบรหัสนักศึกษาและรหัสผ่านของคุณ";
           setErrorMsg(errMsg);
-          toast.error("เข้าสู่ระบบไม่สำเร็จ");
+          toast.error(errMsg);
         } else {
-          setErrorMsg(error.message);
-          toast.error(error.message);
+          const thaiMsg = translateThaiError(error);
+          setErrorMsg(thaiMsg);
+          toast.error(thaiMsg);
         }
         setLoading(false);
       } else if (data?.user) {
@@ -101,8 +104,9 @@ export default function LoginPage() {
         router.refresh();
       }
     } catch (err: any) {
-      setErrorMsg("เกิดข้อผิดพลาดในการเชื่อมต่อระบบ");
-      toast.error("เกิดข้อผิดพลาดในการเชื่อมต่อระบบ");
+      const thaiMsg = translateThaiError(err);
+      setErrorMsg(thaiMsg);
+      toast.error(thaiMsg);
       setLoading(false);
     }
   };

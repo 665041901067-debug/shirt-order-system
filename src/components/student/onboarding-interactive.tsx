@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Profile } from "@/types";
 import { saveProfileOnboarding } from "@/services/profile";
+import { translateThaiError } from "@/lib/thai-errors";
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -113,6 +114,61 @@ export function OnboardingInteractive({ initialProfile }: Props) {
     setLoading(true);
 
     try {
+      const supabase = createClient();
+      const { data: { user }, error: userErr } = await supabase.auth.getUser();
+
+      if (user && !userErr) {
+        // 1. Update password in Supabase Auth if provided
+        if (newPassword.trim().length > 0) {
+          const { error: pwErr } = await supabase.auth.updateUser({
+            password: newPassword.trim(),
+          });
+          if (pwErr) {
+            const thaiErr = translateThaiError(pwErr);
+            setErrorMsg(thaiErr);
+            toast.error(thaiErr);
+            setLoading(false);
+            return;
+          }
+        }
+
+        // 2. Update profiles in Supabase table
+        const profilePayload = {
+          first_name: formData.first_name.trim(),
+          last_name: formData.last_name.trim(),
+          nickname: formData.nickname.trim(),
+          student_id: formData.student_id.trim(),
+          phone: cleanPhone,
+          academic_year: formData.academic_year,
+          major: formData.major || "วิศวกรรมคอมพิวเตอร์และระบบ IoT",
+          updated_at: new Date().toISOString(),
+        };
+
+        const { error: updateErr } = await supabase
+          .from("profiles")
+          .update(profilePayload)
+          .eq("id", user.id);
+
+        if (updateErr) {
+          const { error: upsertErr } = await supabase
+            .from("profiles")
+            .upsert({ id: user.id, ...profilePayload });
+
+          if (upsertErr) {
+            const thaiErr = translateThaiError(upsertErr);
+            setErrorMsg(thaiErr);
+            toast.error(thaiErr);
+            setLoading(false);
+            return;
+          }
+        }
+
+        toast.success("บันทึกข้อมูลส่วนตัวและรหัสผ่านเรียบร้อยแล้ว!");
+        window.location.href = initialProfile?.role === "ADMIN" ? "/admin" : "/";
+        return;
+      }
+
+      // Fallback to Server Action if client session missing
       const res = await saveProfileOnboarding({
         ...formData,
         phone: cleanPhone,
@@ -120,15 +176,18 @@ export function OnboardingInteractive({ initialProfile }: Props) {
       });
 
       if (!res.success) {
-        setErrorMsg(res.error || "เกิดข้อผิดพลาดในการบันทึกข้อมูล");
-        toast.error(res.error || "เกิดข้อผิดพลาดในการบันทึกข้อมูล");
+        const thaiErr = translateThaiError(res.error);
+        setErrorMsg(thaiErr);
+        toast.error(thaiErr);
         setLoading(false);
       } else {
         toast.success("บันทึกข้อมูลส่วนตัวและรหัสผ่านเรียบร้อยแล้ว!");
         window.location.href = initialProfile?.role === "ADMIN" ? "/admin" : "/";
       }
     } catch (err: any) {
-      setErrorMsg(err?.message || "ไม่สามารถเชื่อมต่อบันทึกข้อมูลได้");
+      const thaiErr = translateThaiError(err);
+      setErrorMsg(thaiErr);
+      toast.error(thaiErr);
       setLoading(false);
     }
   };
