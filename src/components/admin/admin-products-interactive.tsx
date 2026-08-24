@@ -3,15 +3,36 @@
 import React, { useState, useEffect } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Product, ProductSize, ProductImage } from "@/types";
+import { Product, ProductSize, ProductImage, ProductImageType } from "@/types";
 import { createClient } from "@/lib/supabase/client";
-import { getProducts } from "@/services/products";
+import { getAllAdminProducts } from "@/services/products";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Shirt, Plus, Trash2, Edit, Sparkles, Check, Images, Settings2, Upload, PlusCircle, FileImage } from "lucide-react";
+import { useToast } from "@/components/ui/toast";
+import { 
+  Shirt, 
+  Plus, 
+  Trash2, 
+  Edit, 
+  Sparkles, 
+  Check, 
+  Images, 
+  Settings2, 
+  Upload, 
+  PlusCircle, 
+  FileImage,
+  Star,
+  Eye,
+  Maximize2,
+  X,
+  RefreshCw,
+  Loader2,
+  ChevronRight,
+  SlidersHorizontal
+} from "lucide-react";
 
 interface Props {
   initialProducts: Product[];
@@ -19,30 +40,45 @@ interface Props {
 
 export function AdminProductsInteractive({ initialProducts }: Props) {
   const router = useRouter();
+  const toast = useToast();
+
   const [products, setProducts] = useState<Product[]>(initialProducts);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [uploadingImgId, setUploadingImgId] = useState<string | null>(null);
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [previewZoomImage, setPreviewZoomImage] = useState<string | null>(null);
 
   useEffect(() => {
     setProducts(initialProducts);
   }, [initialProducts]);
 
-  // Realtime Live Sync for Admin Products
+  // Realtime Live Sync for Admin Products & Images
   useEffect(() => {
     const supabase = createClient();
 
     const fetchLatestProducts = async () => {
       try {
-        const freshProducts = await getProducts();
-        setProducts(freshProducts);
+        const { data } = await supabase
+          .from("products")
+          .select(`
+            *,
+            images:product_images(*),
+            sizes:product_sizes(*),
+            campaign:campaigns(*)
+          `)
+          .order("created_at", { ascending: false });
+
+        if (data) {
+          setProducts(data as Product[]);
+        }
       } catch (e) {}
     };
 
     const channel = supabase
-      .channel("admin-products-realtime")
+      .channel(`admin-products-live-${Date.now()}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "products" },
@@ -66,8 +102,11 @@ export function AdminProductsInteractive({ initialProducts }: Props) {
       )
       .subscribe();
 
+    window.addEventListener("app:product-changed", fetchLatestProducts);
+
     return () => {
       supabase.removeChannel(channel);
+      window.removeEventListener("app:product-changed", fetchLatestProducts);
     };
   }, []);
 
@@ -156,6 +195,9 @@ export function AdminProductsInteractive({ initialProducts }: Props) {
       .from("products")
       .update({ is_active: !currentStatus })
       .eq("id", productId);
+
+    toast.info(!currentStatus ? "เปิดขายสินค้าเรียบร้อยแล้ว" : "ปิดการขายสินค้าเรียบร้อยแล้ว");
+    window.dispatchEvent(new CustomEvent("app:product-changed"));
   };
 
   const handleDeleteProduct = async (productId: string) => {
@@ -167,6 +209,9 @@ export function AdminProductsInteractive({ initialProducts }: Props) {
     // 2. Backend delete
     const supabase = createClient();
     await supabase.from("products").delete().eq("id", productId);
+
+    toast.success("ลบสินค้าเรียบร้อยแล้ว");
+    window.dispatchEvent(new CustomEvent("app:product-changed"));
   };
 
   const handleAddSize = () => {
@@ -177,59 +222,188 @@ export function AdminProductsInteractive({ initialProducts }: Props) {
     setEditingSizes(editingSizes.filter((_, i) => i !== index));
   };
 
-  // Multi-File Image Upload directly from file selector
+  // 1. Multi-File Image Upload directly to Supabase storage + DB
   const handleFileUploadForProduct = async (productId: string, files: FileList | null) => {
     if (!files || files.length === 0) return;
 
     setUploadingImgId(productId);
     const supabase = createClient();
+    const targetProduct = products.find((p) => p.id === productId);
+    const currentImages = targetProduct?.images || [];
+    const hasMainImage = currentImages.some((i) => i.image_type === "MAIN");
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const fileExt = file.name.split(".").pop();
-      const fileName = `${productId}_${Date.now()}_${i}.${fileExt}`;
-      const filePath = fileName;
+    try {
+      const newImagesList: ProductImage[] = [];
 
-      let uploadedUrl = "";
-      const { data: uploadData, error: uploadErr } = await supabase.storage
-        .from("products")
-        .upload(filePath, file);
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const fileExt = file.name.split(".").pop() || "jpg";
+        const fileName = `${productId}_${Date.now()}_${i}.${fileExt}`;
+        const filePath = fileName;
 
-      if (uploadErr) {
-        const { data: pubUrl } = supabase.storage.from("products").getPublicUrl(filePath);
-        uploadedUrl = pubUrl.publicUrl;
-      } else {
-        const { data: pubUrl } = supabase.storage.from("products").getPublicUrl(uploadData.path);
-        uploadedUrl = pubUrl.publicUrl;
+        let uploadedUrl = "";
+        const { data: uploadData, error: uploadErr } = await supabase.storage
+          .from("products")
+          .upload(filePath, file, { upsert: true });
+
+        if (uploadErr) {
+          const { data: pubUrl } = supabase.storage.from("products").getPublicUrl(filePath);
+          uploadedUrl = pubUrl.publicUrl;
+        } else {
+          const { data: pubUrl } = supabase.storage.from("products").getPublicUrl(uploadData.path);
+          uploadedUrl = pubUrl.publicUrl;
+        }
+
+        // If product currently has no main image, make the first uploaded image MAIN; otherwise GALLERY
+        const isFirstAndNoMain = !hasMainImage && i === 0;
+        const imgType = isFirstAndNoMain ? "MAIN" : "GALLERY";
+
+        const { data: newImg } = await supabase
+          .from("product_images")
+          .insert({
+            product_id: productId,
+            image_url: uploadedUrl,
+            image_type: imgType,
+            display_order: currentImages.length + i + 1,
+          })
+          .select()
+          .single();
+
+        if (newImg) {
+          newImagesList.push(newImg as ProductImage);
+        }
       }
 
-      const imgType = i === 0 ? "MAIN" : i === 1 ? "FRONT" : i === 2 ? "BACK" : "GALLERY";
-
-      const { data: newImg } = await supabase
-        .from("product_images")
-        .insert({
-          product_id: productId,
-          image_url: uploadedUrl,
-          image_type: imgType,
-          display_order: i + 1,
-        })
-        .select()
-        .single();
-
-      if (newImg) {
+      if (newImagesList.length > 0) {
         setProducts((prev) =>
           prev.map((p) => {
             if (p.id === productId) {
-              return { ...p, images: [...(p.images || []), newImg as ProductImage] };
+              return { ...p, images: [...(p.images || []), ...newImagesList] };
             }
             return p;
           })
         );
+        toast.success(`อัปโหลดรูปภาพใหม่ ${newImagesList.length} รูปเรียบร้อยแล้ว!`);
+        window.dispatchEvent(new CustomEvent("app:product-changed"));
       }
+    } catch (err: any) {
+      toast.error(err?.message || "เกิดข้อผิดพลาดในการอัปโหลดรูปภาพ");
+    } finally {
+      setUploadingImgId(null);
+    }
+  };
+
+  // 2. Set image as MAIN (Cover Photo)
+  const handleSetMainImage = async (productId: string, imageId: string) => {
+    setActionLoadingId(imageId);
+    const supabase = createClient();
+
+    // 1. Optimistic Update (0ms)
+    setProducts((prev) =>
+      prev.map((p) => {
+        if (p.id === productId) {
+          const updatedImgs: ProductImage[] = (p.images || []).map((img) => ({
+            ...img,
+            image_type: (img.id === imageId ? "MAIN" : (img.image_type === "MAIN" ? "GALLERY" : img.image_type)) as ProductImageType,
+          }));
+          return { ...p, images: updatedImgs };
+        }
+        return p;
+      })
+    );
+
+    try {
+      // 2. Update any other MAIN images of this product to GALLERY
+      await supabase
+        .from("product_images")
+        .update({ image_type: "GALLERY" })
+        .eq("product_id", productId)
+        .eq("image_type", "MAIN");
+
+      // 3. Update this image to MAIN
+      await supabase
+        .from("product_images")
+        .update({ image_type: "MAIN" })
+        .eq("id", imageId);
+
+      toast.success("ตั้งเป็นรูปภาพหลักเรียบร้อยแล้ว!");
+      window.dispatchEvent(new CustomEvent("app:product-changed"));
+    } catch (err: any) {
+      toast.error("ไม่สามารถตั้งรูปหลักได้");
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  // 3. Delete an image
+  const handleDeleteImage = async (productId: string, imageId: string) => {
+    if (!confirm("คุณต้องการลบรูปภาพนี้ใช่หรือไม่?")) return;
+
+    setActionLoadingId(imageId);
+    const supabase = createClient();
+
+    // 1. Optimistic Update (0ms)
+    setProducts((prev) =>
+      prev.map((p) => {
+        if (p.id === productId) {
+          const remainingImgs: ProductImage[] = (p.images || []).filter((img) => img.id !== imageId);
+          // If deleted image was MAIN, promote the first remaining image to MAIN
+          const wasMain = (p.images || []).find((img) => img.id === imageId)?.image_type === "MAIN";
+          if (wasMain && remainingImgs.length > 0) {
+            remainingImgs[0] = { ...remainingImgs[0], image_type: "MAIN" as ProductImageType };
+          }
+          return { ...p, images: remainingImgs };
+        }
+        return p;
+      })
+    );
+
+    try {
+      await supabase.from("product_images").delete().eq("id", imageId);
+      toast.success("ลบรูปภาพเรียบร้อยแล้ว!");
+      window.dispatchEvent(new CustomEvent("app:product-changed"));
+    } catch (err: any) {
+      toast.error("ไม่สามารถลบรูปภาพได้");
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  // 4. Change Image Type Tag (MAIN, FRONT, BACK, GALLERY)
+  const handleChangeImageType = async (productId: string, imageId: string, newType: string) => {
+    setActionLoadingId(imageId);
+    const supabase = createClient();
+
+    if (newType === "MAIN") {
+      await handleSetMainImage(productId, imageId);
+      return;
     }
 
-    setUploadingImgId(null);
-    router.refresh();
+    setProducts((prev) =>
+      prev.map((p) => {
+        if (p.id === productId) {
+          const updatedImgs: ProductImage[] = (p.images || []).map((img) =>
+            img.id === imageId ? { ...img, image_type: newType as ProductImageType } : img
+          );
+          return { ...p, images: updatedImgs };
+        }
+        return p;
+      })
+    );
+
+    try {
+      await supabase
+        .from("product_images")
+        .update({ image_type: newType })
+        .eq("id", imageId);
+
+      toast.success(`เปลี่ยนประเภทรูปภาพเป็น ${newType} เรียบร้อยแล้ว`);
+      window.dispatchEvent(new CustomEvent("app:product-changed"));
+    } catch (err: any) {
+      toast.error("ไม่สามารถเปลี่ยนประเภทรูปภาพได้");
+    } finally {
+      setActionLoadingId(null);
+    }
   };
 
   const handleSaveProduct = async (e: React.FormEvent) => {
@@ -290,6 +464,8 @@ export function AdminProductsInteractive({ initialProducts }: Props) {
 
       await supabase.from("product_sizes").insert(sizesToInsert);
 
+      toast.success("บันทึกการแก้ไขสินค้าเรียบร้อยแล้ว!");
+      window.dispatchEvent(new CustomEvent("app:product-changed"));
       setSubmitting(false);
       setIsModalOpen(false);
       router.refresh();
@@ -351,6 +527,8 @@ export function AdminProductsInteractive({ initialProducts }: Props) {
 
       await supabase.from("product_sizes").insert(sizesToInsert);
 
+      toast.success("สร้างสินค้าใหม่เรียบร้อยแล้ว!");
+      window.dispatchEvent(new CustomEvent("app:product-changed"));
       setSubmitting(false);
       setIsModalOpen(false);
       setProducts([newProd as Product, ...products]);
@@ -370,7 +548,7 @@ export function AdminProductsInteractive({ initialProducts }: Props) {
           </h1>
         </div>
 
-        <Button onClick={openCreateModal} className="rounded-xl font-bold bg-blue-600 hover:bg-blue-500 text-white">
+        <Button onClick={openCreateModal} className="rounded-xl font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-sm">
           <Plus className="h-4 w-4 mr-1.5" />
           <span>เพิ่มสินค้าใหม่</span>
         </Button>
@@ -392,110 +570,281 @@ export function AdminProductsInteractive({ initialProducts }: Props) {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {products.map((product) => {
-            const mainImg = product.images?.find((i) => i.image_type === "MAIN")?.image_url || product.images?.[0]?.image_url;
+            const images = product.images || [];
+            const mainImgObj = images.find((i) => i.image_type === "MAIN") || images[0];
+            const mainImg = mainImgObj?.image_url;
 
             return (
-              <Card key={product.id} className="border-slate-200 bg-white rounded-2xl overflow-hidden shadow-xs">
-                <div className="relative aspect-square w-full bg-slate-100 overflow-hidden">
-                  {mainImg ? (
-                    <img src={mainImg} alt={product.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="flex flex-col items-center justify-center h-full text-slate-400">
-                      <Shirt className="h-16 w-16 stroke-[1]" />
-                      <span className="text-xs mt-2 font-medium">ไม่มีรูปภาพ</span>
-                    </div>
-                  )}
+              <Card key={product.id} className="border-slate-200 bg-white rounded-3xl overflow-hidden shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between">
+                
+                <div>
+                  {/* Main Product Showcase Cover Image */}
+                  <div className="relative aspect-square w-full bg-slate-100 overflow-hidden group">
+                    {mainImg ? (
+                      <img src={mainImg} alt={product.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center h-full text-slate-400">
+                        <Shirt className="h-16 w-16 stroke-[1]" />
+                        <span className="text-xs mt-2 font-medium">ไม่มีรูปภาพสินค้า</span>
+                      </div>
+                    )}
 
-                  <div className="absolute top-3 right-3 flex items-center gap-2">
-                    <Badge variant={product.is_active ? "success" : "danger"}>
-                      {product.is_active ? "เปิดขายอยู่" : "ปิดการขาย"}
-                    </Badge>
+                    {/* Top Badges */}
+                    <div className="absolute top-3 left-3 flex items-center gap-1.5">
+                      {mainImg && (
+                        <span className="bg-slate-900/80 backdrop-blur-md text-amber-300 px-2.5 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1 shadow-sm">
+                          <Star className="h-3 w-3 fill-amber-300 text-amber-300" />
+                          <span>รูปหลัก (Cover)</span>
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="absolute top-3 right-3 flex items-center gap-2">
+                      <Badge variant={product.is_active ? "success" : "danger"} className="font-bold shadow-sm">
+                        {product.is_active ? "เปิดขายอยู่" : "ปิดการขาย"}
+                      </Badge>
+                    </div>
+
+                    {/* Image Preview Overlay Button */}
+                    {mainImg && (
+                      <button
+                        onClick={() => setPreviewZoomImage(mainImg)}
+                        className="absolute bottom-3 right-3 bg-slate-900/80 hover:bg-slate-900 text-white p-2 rounded-xl text-xs font-bold backdrop-blur-md opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 shadow-md"
+                        title="ดูรูปภาพขนาดเต็ม"
+                      >
+                        <Maximize2 className="h-3.5 w-3.5" />
+                        <span>ขยายรูป</span>
+                      </button>
+                    )}
                   </div>
+
+                  <CardContent className="p-5 space-y-4">
+                    <div>
+                      <h3 className="font-bold text-base text-slate-900 leading-snug">{product.name}</h3>
+                      <p className="text-xs text-slate-500 line-clamp-2 mt-1 min-h-[32px]">
+                        {product.description || "ไม่มีรายละเอียดสินค้า"}
+                      </p>
+
+                      {/* Active Controls Overview */}
+                      <div className="flex flex-wrap gap-1.5 pt-2">
+                        <Badge variant={product.allow_custom_name !== false ? "primary" : "secondary"} size="sm">
+                          {product.allow_custom_name !== false ? `✓ ชื่อ (${Number(product.custom_name_price) > 0 ? `+฿${product.custom_name_price}` : "ฟรี"})` : "✕ ปิดสกรีนชื่อ"}
+                        </Badge>
+                        <Badge variant={product.allow_custom_number !== false ? "primary" : "secondary"} size="sm">
+                          {product.allow_custom_number !== false ? `✓ เบอร์ (${Number(product.custom_number_price) > 0 ? `+฿${product.custom_number_price}` : "ฟรี"})` : "✕ ปิดสกรีนเบอร์"}
+                        </Badge>
+                      </div>
+                    </div>
+
+                    {/* Price and Top Actions */}
+                    <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+                      <div>
+                        <span className="text-[10px] text-slate-400 block font-medium">ราคาเริ่มต้น</span>
+                        <span className="text-xl font-black text-blue-600 font-mono">
+                          ฿{Number(product.base_price).toLocaleString()}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => openEditModal(product)}
+                          className="rounded-xl text-xs font-bold"
+                        >
+                          <Settings2 className="h-3.5 w-3.5 mr-1 text-slate-600" />
+                          <span>แก้ไขข้อมูล</span>
+                        </Button>
+
+                        <Button
+                          size="sm"
+                          variant={product.is_active ? "outline" : "primary"}
+                          onClick={() => handleToggleProductStatus(product.id, product.is_active)}
+                          className="rounded-xl text-xs font-bold"
+                        >
+                          {product.is_active ? "ปิดขาย" : "เปิดขาย"}
+                        </Button>
+
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          onClick={() => handleDeleteProduct(product.id)}
+                          className="rounded-xl p-2"
+                          title="ลบสินค้านี้"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* 📸 FULL PRODUCT GALLERY & IMAGE MANAGER SECTION */}
+                    <div className="pt-3 border-t border-slate-100 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
+                          <Images className="h-4 w-4 text-blue-600" />
+                          <span>รูปภาพสินค้าทั้งหมด ({images.length} รูป)</span>
+                        </span>
+                        <span className="text-[11px] text-slate-400">
+                          {images.length > 0 ? "คลิกรูปเพื่อดู/จัดการ" : "ยังไม่มีรูปภาพ"}
+                        </span>
+                      </div>
+
+                      {/* Horizontal Grid of Uploaded Images */}
+                      {images.length > 0 && (
+                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 bg-slate-50 p-2.5 rounded-2xl border border-slate-200/80">
+                          {images.map((img, idx) => {
+                            const isMain = img.image_type === "MAIN";
+                            const isLoading = actionLoadingId === img.id;
+
+                            return (
+                              <div
+                                key={img.id}
+                                className={`relative group/img rounded-xl overflow-hidden aspect-square border-2 transition-all bg-white ${
+                                  isMain ? "border-blue-600 ring-2 ring-blue-200" : "border-slate-200 hover:border-blue-400"
+                                }`}
+                              >
+                                <img
+                                  src={img.image_url}
+                                  alt={`Product image ${idx + 1}`}
+                                  className="w-full h-full object-cover cursor-pointer"
+                                  onClick={() => setPreviewZoomImage(img.image_url)}
+                                />
+
+                                {/* Tag Badge on Top */}
+                                <div className="absolute top-1 left-1">
+                                  {isMain ? (
+                                    <span className="bg-blue-600 text-white text-[9px] font-black px-1.5 py-0.5 rounded-md flex items-center gap-0.5 shadow-xs">
+                                      <Star className="h-2.5 w-2.5 fill-current" />
+                                      <span>หลัก</span>
+                                    </span>
+                                  ) : img.image_type === "FRONT" ? (
+                                    <span className="bg-emerald-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md shadow-xs">
+                                      หน้า
+                                    </span>
+                                  ) : img.image_type === "BACK" ? (
+                                    <span className="bg-purple-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md shadow-xs">
+                                      หลัง
+                                    </span>
+                                  ) : (
+                                    <span className="bg-slate-700/80 text-white text-[9px] font-medium px-1 py-0.2 rounded shadow-xs">
+                                      ประกอบ
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Loading Overlay */}
+                                {isLoading && (
+                                  <div className="absolute inset-0 bg-slate-900/60 flex items-center justify-center text-white">
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  </div>
+                                )}
+
+                                {/* Action Overlay on Hover/Touch */}
+                                <div className="absolute inset-0 bg-slate-950/70 opacity-0 group-hover/img:opacity-100 transition-opacity flex flex-col justify-between p-1">
+                                  <div className="flex justify-end gap-1">
+                                    {/* Delete Button */}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteImage(product.id, img.id)}
+                                      className="p-1 bg-red-600 hover:bg-red-500 text-white rounded-md text-[10px] font-bold shadow-xs transition-colors"
+                                      title="ลบรูปภาพนี้"
+                                    >
+                                      <Trash2 className="h-3 w-3" />
+                                    </button>
+                                  </div>
+
+                                  <div className="space-y-0.5">
+                                    {/* Set as Main Button */}
+                                    {!isMain && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSetMainImage(product.id, img.id)}
+                                        className="w-full py-0.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded text-[9px] font-extrabold shadow-xs transition-colors block text-center"
+                                        title="ตั้งเป็นรูปหลักสำหรับแสดงหน้าสินค้าและออเดอร์"
+                                      >
+                                        ★ รูปหลัก
+                                      </button>
+                                    )}
+
+                                    {/* Type Switcher */}
+                                    <select
+                                      value={img.image_type || "GALLERY"}
+                                      onChange={(e) => handleChangeImageType(product.id, img.id, e.target.value)}
+                                      className="w-full bg-slate-800 text-white text-[9px] rounded px-1 py-0.5 border border-slate-700 font-bold focus:outline-none"
+                                    >
+                                      <option value="MAIN">รูปหลัก (Cover)</option>
+                                      <option value="FRONT">ด้านหน้า (Front)</option>
+                                      <option value="BACK">ด้านหลัง (Back)</option>
+                                      <option value="GALLERY">รูปประกอบ (Gallery)</option>
+                                    </select>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Multi-File Upload Button */}
+                      <div className="border border-dashed border-blue-300 rounded-2xl p-3 text-center bg-blue-50/40 hover:bg-blue-50 transition-colors">
+                        <input
+                          type="file"
+                          multiple
+                          accept="image/png, image/jpeg, image/webp, image/jpg"
+                          onChange={(e) => handleFileUploadForProduct(product.id, e.target.files)}
+                          className="hidden"
+                          id={`product-file-upload-${product.id}`}
+                        />
+                        <label
+                          htmlFor={`product-file-upload-${product.id}`}
+                          className="cursor-pointer flex items-center justify-center gap-2 text-xs font-bold text-blue-700"
+                        >
+                          {uploadingImgId === product.id ? (
+                            <span className="flex items-center gap-2 text-blue-600">
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              <span>กำลังอัปโหลดและบันทึกรูปภาพ...</span>
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1.5">
+                              <Upload className="h-4 w-4 text-blue-600" />
+                              <span>+ เพิ่มรูปภาพสินค้า (เลือกได้หลายรูป)</span>
+                            </span>
+                          )}
+                        </label>
+                      </div>
+                    </div>
+
+                  </CardContent>
                 </div>
 
-                <CardContent className="p-5 space-y-4">
-                  <div>
-                    <h3 className="font-bold text-base text-slate-900">{product.name}</h3>
-                    <p className="text-xs text-slate-500 line-clamp-2 mt-1 min-h-[32px]">
-                      {product.description || "ไม่มีรายละเอียดสินค้า"}
-                    </p>
-
-                    {/* Active Controls Overview */}
-                    <div className="flex flex-wrap gap-1.5 pt-2">
-                      <Badge variant={product.allow_custom_name !== false ? "primary" : "secondary"} size="sm">
-                        {product.allow_custom_name !== false ? `✓ ชื่อ (${Number(product.custom_name_price) > 0 ? `+฿${product.custom_name_price}` : "ฟรี"})` : "✕ ปิดสกรีนชื่อ"}
-                      </Badge>
-                      <Badge variant={product.allow_custom_number !== false ? "primary" : "secondary"} size="sm">
-                        {product.allow_custom_number !== false ? `✓ เบอร์ (${Number(product.custom_number_price) > 0 ? `+฿${product.custom_number_price}` : "ฟรี"})` : "✕ ปิดสกรีนเบอร์"}
-                      </Badge>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-3 border-t border-slate-100">
-                    <div>
-                      <span className="text-[10px] text-slate-400 block font-medium">ราคาเริ่มต้น</span>
-                      <span className="text-lg font-extrabold text-blue-600">
-                        ฿{Number(product.base_price).toLocaleString()}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => openEditModal(product)}
-                        className="rounded-xl text-xs"
-                      >
-                        <Settings2 className="h-3.5 w-3.5 mr-1" />
-                        <span>แก้ไขข้อมูล</span>
-                      </Button>
-
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleToggleProductStatus(product.id, product.is_active)}
-                        className="rounded-xl text-xs"
-                      >
-                        {product.is_active ? "ปิดขาย" : "เปิดขาย"}
-                      </Button>
-
-                      <Button
-                        size="sm"
-                        variant="danger"
-                        onClick={() => handleDeleteProduct(product.id)}
-                        className="rounded-xl p-2"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* Multi-File Upload Input for Images */}
-                  <div className="pt-2 border-t border-slate-100 space-y-2">
-                    <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
-                      <Images className="h-3.5 w-3.5 text-blue-600" />
-                      <span>อัปโหลดรูปภาพสินค้าหลายรูป (Multi-Image Upload):</span>
-                    </span>
-
-                    <div className="border border-dashed border-slate-300 rounded-xl p-3 text-center bg-slate-50 hover:bg-slate-100/60 transition-colors">
-                      <input
-                        type="file"
-                        multiple
-                        accept="image/png, image/jpeg, image/webp"
-                        onChange={(e) => handleFileUploadForProduct(product.id, e.target.files)}
-                        className="hidden"
-                        id={`product-file-upload-${product.id}`}
-                      />
-                      <label htmlFor={`product-file-upload-${product.id}`} className="cursor-pointer flex items-center justify-center gap-2 text-xs font-semibold text-blue-600">
-                        <FileImage className="h-4 w-4" />
-                        <span>{uploadingImgId === product.id ? "กำลังอัปโหลด..." : "+ เลือกรูปภาพเพิ่ม (เลือกได้หลายรูป)"}</span>
-                      </label>
-                    </div>
-                  </div>
-                </CardContent>
               </Card>
             );
           })}
+        </div>
+      )}
+
+      {/* Full Resolution Image Lightbox Modal */}
+      {previewZoomImage && (
+        <div
+          onClick={() => setPreviewZoomImage(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative max-w-4xl w-full max-h-[90vh] bg-black rounded-3xl overflow-hidden shadow-2xl flex items-center justify-center"
+          >
+            <img
+              src={previewZoomImage}
+              alt="Full resolution preview"
+              className="max-h-[85vh] w-auto max-w-full object-contain"
+            />
+            <button
+              onClick={() => setPreviewZoomImage(null)}
+              className="absolute top-4 right-4 bg-white/20 hover:bg-white/40 text-white p-2.5 rounded-full font-bold transition-colors"
+            >
+              <X className="h-6 w-6" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -509,8 +858,8 @@ export function AdminProductsInteractive({ initialProducts }: Props) {
                   <Sparkles className="h-5 w-5 text-blue-600" />
                   <span>{editingProduct ? `แก้ไขสินค้า: ${editingProduct.name}` : "เพิ่มสินค้าใหม่เข้าสู่ระบบ"}</span>
                 </h3>
-                <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-700 font-bold">
-                  ✕
+                <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-700 font-bold p-1">
+                  <X className="h-5 w-5" />
                 </button>
               </div>
 
@@ -529,10 +878,11 @@ export function AdminProductsInteractive({ initialProducts }: Props) {
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold text-slate-700">ชื่อสินค้า *</label>
                     <Input
-                      placeholder="เช่น เสื้อกีฬาสาขา CPE & IoT 2026"
+                      placeholder="เช่น เสื้อกีฬาสาขา CPE & IoT 2026 (สีน้ำเงิน)"
                       value={formData.name}
                       onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                       required
+                      className="rounded-xl text-xs h-10"
                     />
                   </div>
 
@@ -542,6 +892,7 @@ export function AdminProductsInteractive({ initialProducts }: Props) {
                       placeholder="คำอธิบายรายละเอียดสั้นๆ..."
                       value={formData.description}
                       onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                      className="rounded-xl text-xs h-10"
                     />
                   </div>
 
@@ -553,6 +904,7 @@ export function AdminProductsInteractive({ initialProducts }: Props) {
                         value={formData.base_price}
                         onChange={(e) => setFormData({ ...formData, base_price: Number(e.target.value) })}
                         required
+                        className="rounded-xl text-xs h-10"
                       />
                     </div>
 
@@ -561,6 +913,7 @@ export function AdminProductsInteractive({ initialProducts }: Props) {
                       <Input
                         value={formData.category}
                         onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                        className="rounded-xl text-xs h-10"
                       />
                     </div>
                   </div>
@@ -684,7 +1037,7 @@ export function AdminProductsInteractive({ initialProducts }: Props) {
                   </div>
                 </div>
 
-                <Button type="submit" isLoading={submitting} className="w-full mt-4 rounded-xl">
+                <Button type="submit" isLoading={submitting} className="w-full mt-4 rounded-xl font-bold bg-blue-600 hover:bg-blue-500 text-white h-11">
                   <span>{editingProduct ? "บันทึกการแก้ไขทั้งหมด" : "บันทึกและสร้างสินค้า"}</span>
                 </Button>
               </form>

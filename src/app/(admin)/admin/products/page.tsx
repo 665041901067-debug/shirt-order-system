@@ -1,13 +1,12 @@
-import React from "react";
 import { getCurrentProfile } from "@/services/profile";
-import { getProducts } from "@/services/products";
+import { getAllAdminProducts } from "@/services/products";
 import { Header } from "@/components/shared/header";
 import { AdminProductsInteractive } from "@/components/admin/admin-products-interactive";
 
 export default async function AdminProductsPage() {
   const [profile, products] = await Promise.all([
     getCurrentProfile(),
-    getProducts(),
+    getAllAdminProducts(),
   ]);
 
   return (

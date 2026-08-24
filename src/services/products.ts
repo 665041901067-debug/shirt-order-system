@@ -42,6 +42,22 @@ export async function getProducts(searchQuery?: string, categoryFilter?: string)
   return (products || []) as Product[];
 }
 
+export async function getAllAdminProducts(): Promise<Product[]> {
+  const supabase = await createClient();
+  
+  const { data: products } = await supabase
+    .from("products")
+    .select(`
+      *,
+      images:product_images(*),
+      sizes:product_sizes(*),
+      campaign:campaigns(*)
+    `)
+    .order("created_at", { ascending: false });
+
+  return (products || []) as Product[];
+}
+
 export async function getProductById(id: string): Promise<Product | null> {
   const supabase = await createClient();
 
