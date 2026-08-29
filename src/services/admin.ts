@@ -249,3 +249,87 @@ export async function clearAllOrdersData(): Promise<{ success: boolean; error?: 
     return { success: false, error: err.message || "เกิดข้อผิดพลาดในการล้างข้อมูล" };
   }
 }
+
+export async function updateOrderDetails(
+  orderId: string,
+  updatedItems: {
+    id: string;
+    size_name_snapshot: string;
+    size_price_snapshot: number;
+    custom_name?: string;
+    custom_number?: string;
+    note?: string;
+    quantity: number;
+    subtotal: number;
+  }[],
+  newTotalAmount: number
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) return { success: false, error: "กรุณาเข้าสู่ระบบก่อนทำรายการ" };
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+
+  if (profile?.role !== "ADMIN") {
+    return { success: false, error: "เฉพาะผู้ดูแลระบบเท่านั้นที่มีสิทธิ์แก้ไขออเดอร์" };
+  }
+
+  try {
+    // 1. Update each order item
+    for (const item of updatedItems) {
+      const { error: itemErr } = await supabase
+        .from("order_items")
+        .update({
+          size_name_snapshot: item.size_name_snapshot,
+          size_price_snapshot: item.size_price_snapshot,
+          custom_name: item.custom_name || "",
+          custom_number: item.custom_number || "",
+          note: item.note || "",
+          quantity: item.quantity,
+          subtotal: item.subtotal,
+        })
+        .eq("id", item.id);
+
+      if (itemErr) {
+        return { success: false, error: itemErr.message };
+      }
+    }
+
+    // 2. Update order total amount
+    const { error: orderErr } = await supabase
+      .from("orders")
+      .update({
+        total_amount: newTotalAmount,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", orderId);
+
+    if (orderErr) {
+      return { success: false, error: orderErr.message };
+    }
+
+    // 3. Update payment amount if exists
+    await supabase
+      .from("payments")
+      .update({ amount: newTotalAmount })
+      .eq("order_id", orderId);
+
+    // 4. Log audit
+    await supabase.from("audit_logs").insert({
+      user_id: user.id,
+      action: "UPDATE_ORDER_DETAILS",
+      entity_type: "orders",
+      entity_id: orderId,
+      metadata: { new_total_amount: newTotalAmount, items_count: updatedItems.length },
+    });
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || "เกิดข้อผิดพลาดในการบันทึกแก้ไขออเดอร์" };
+  }
+}

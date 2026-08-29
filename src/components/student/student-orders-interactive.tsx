@@ -55,6 +55,13 @@ export function StudentOrdersInteractive({ initialOrders }: Props) {
           fetchLatestOrders();
         }
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "order_items" },
+        () => {
+          fetchLatestOrders();
+        }
+      )
       .subscribe();
 
     window.addEventListener("app:order-changed", fetchLatestOrders);

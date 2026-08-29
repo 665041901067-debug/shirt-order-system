@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Order, OrderStatus, PaymentStatus } from "@/types";
-import { updateOrderStatus, verifyPayment, clearAllOrdersData } from "@/services/admin";
+import { updateOrderStatus, verifyPayment, clearAllOrdersData, updateOrderDetails } from "@/services/admin";
 import { getStatusBadgeVariant, getStatusLabel } from "@/lib/order-status";
 import { createClient } from "@/lib/supabase/client";
 import { SmartPickupScannerModal } from "./smart-pickup-scanner-modal";
@@ -79,6 +79,157 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
 
   const [isClearAllModalOpen, setIsClearAllModalOpen] = useState(false);
   const [isClearingOrders, setIsClearingOrders] = useState(false);
+
+  // Order Item Edit Modal State
+  const [activeOrderForEdit, setActiveOrderForEdit] = useState<Order | null>(null);
+  const [editingItemsState, setEditingItemsState] = useState<{
+    id: string;
+    product_name_snapshot: string;
+    base_price: number;
+    size_name_snapshot: string;
+    size_price_snapshot: number;
+    custom_name: string;
+    custom_number: string;
+    note: string;
+    quantity: number;
+    subtotal: number;
+  }[]>([]);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+
+  const STANDARD_SIZES = [
+    { size_name: "S", price_adjustment: 0 },
+    { size_name: "M", price_adjustment: 0 },
+    { size_name: "L", price_adjustment: 0 },
+    { size_name: "XL", price_adjustment: 20 },
+    { size_name: "2XL", price_adjustment: 30 },
+    { size_name: "3XL", price_adjustment: 50 },
+    { size_name: "4XL", price_adjustment: 70 },
+    { size_name: "5XL", price_adjustment: 90 },
+  ];
+
+  const openEditOrderModal = (order: Order) => {
+    setActiveOrderForEdit(order);
+    const items = (order.items || []).map((item) => {
+      const qty = Number(item.quantity) || 1;
+      const currentSubtotal = Number(item.subtotal) || 0;
+      const currentSizePrice = Number(item.size_price_snapshot) || 0;
+      
+      const basePrice = item.base_price_snapshot
+        ? Number(item.base_price_snapshot)
+        : Math.max(0, (currentSubtotal / qty) - currentSizePrice);
+
+      return {
+        id: item.id,
+        product_name_snapshot: item.product_name_snapshot,
+        base_price: basePrice,
+        size_name_snapshot: item.size_name_snapshot || "M",
+        size_price_snapshot: currentSizePrice,
+        custom_name: item.custom_name || "",
+        custom_number: item.custom_number || "",
+        note: item.note || "",
+        quantity: qty,
+        subtotal: currentSubtotal,
+      };
+    });
+
+    setEditingItemsState(items);
+  };
+
+  const handleSizeChange = (itemIdx: number, newSizeName: string) => {
+    setEditingItemsState((prev) => {
+      const updated = [...prev];
+      const item = { ...updated[itemIdx] };
+      const matchedSize = STANDARD_SIZES.find((s) => s.size_name === newSizeName);
+      const newSizePrice = matchedSize ? matchedSize.price_adjustment : item.size_price_snapshot;
+
+      item.size_name_snapshot = newSizeName;
+      item.size_price_snapshot = newSizePrice;
+      
+      const unitPrice = item.base_price + newSizePrice;
+      item.subtotal = unitPrice * item.quantity;
+      
+      updated[itemIdx] = item;
+      return updated;
+    });
+  };
+
+  const handleQuantityChange = (itemIdx: number, newQty: number) => {
+    const safeQty = Math.max(1, newQty);
+    setEditingItemsState((prev) => {
+      const updated = [...prev];
+      const item = { ...updated[itemIdx] };
+      item.quantity = safeQty;
+
+      const unitPrice = item.base_price + item.size_price_snapshot;
+      item.subtotal = unitPrice * safeQty;
+
+      updated[itemIdx] = item;
+      return updated;
+    });
+  };
+
+  const handleCustomTextChange = (itemIdx: number, field: "custom_name" | "custom_number" | "note", val: string) => {
+    setEditingItemsState((prev) => {
+      const updated = [...prev];
+      updated[itemIdx] = { ...updated[itemIdx], [field]: val };
+      return updated;
+    });
+  };
+
+  const computedEditTotal = editingItemsState.reduce((sum, item) => sum + item.subtotal, 0);
+
+  const handleSaveOrderEdits = async () => {
+    if (!activeOrderForEdit) return;
+
+    setIsSavingEdit(true);
+
+    const targetOrderId = activeOrderForEdit.id;
+
+    // 1. Instant Optimistic State Update (0ms)
+    setOrders((prev) =>
+      prev.map((o) => {
+        if (o.id === targetOrderId) {
+          const updatedItemsList = (o.items || []).map((origItem) => {
+            const edited = editingItemsState.find((e) => e.id === origItem.id);
+            if (edited) {
+              return {
+                ...origItem,
+                size_name_snapshot: edited.size_name_snapshot,
+                size_price_snapshot: edited.size_price_snapshot,
+                custom_name: edited.custom_name,
+                custom_number: edited.custom_number,
+                note: edited.note,
+                quantity: edited.quantity,
+                subtotal: edited.subtotal,
+              };
+            }
+            return origItem;
+          });
+
+          return {
+            ...o,
+            total_amount: computedEditTotal,
+            items: updatedItemsList,
+            payment: o.payment ? { ...o.payment, amount: computedEditTotal } : undefined,
+          };
+        }
+        return o;
+      })
+    );
+
+    toast.success(`อัปเดตรายละเอียดออเดอร์ #${activeOrderForEdit.order_number} เรียบร้อยแล้ว! (เรียลไทม์ 0ms)`);
+    setActiveOrderForEdit(null);
+
+    // 2. Backend update
+    const res = await updateOrderDetails(targetOrderId, editingItemsState, computedEditTotal);
+    setIsSavingEdit(false);
+
+    if (!res.success) {
+      toast.error(res.error || "เกิดข้อผิดพลาดในการบันทึกข้อมูลเข้าสู่เซิร์ฟเวอร์");
+    } else {
+      window.dispatchEvent(new CustomEvent("app:order-changed"));
+    }
+  };
 
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [warningMsg, setWarningMsg] = useState("");
@@ -748,13 +899,24 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
                         </Button>
                       )}
 
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openEditOrderModal(order)}
+                        className="rounded-xl text-xs h-9 px-2.5 font-bold border-blue-200 text-blue-700 hover:bg-blue-50"
+                        title="แก้ไขรายละเอียดไซส์ ชื่อสกรีน เบอร์สกรีน หรือจำนวน"
+                      >
+                        <Edit3 className="h-3.5 w-3.5 mr-1" />
+                        <span>แก้ไขออเดอร์</span>
+                      </Button>
+
                       {/* Large Easy-to-Tap Quick Status Change Button */}
                       <Button
                         size="sm"
                         onClick={() => setActiveOrderForStatusChange(order)}
                         className="rounded-xl text-xs h-9 px-2.5 font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-xs"
                       >
-                        <Edit3 className="h-3.5 w-3.5 mr-1" />
+                        <SlidersHorizontal className="h-3.5 w-3.5 mr-1" />
                         <span>เปลี่ยนสถานะ</span>
                       </Button>
                     </div>
@@ -855,7 +1017,7 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
                         <td className="p-4 whitespace-nowrap">
                           <div className="space-y-1">
                             <span className="font-semibold text-slate-800 block">
-                              {payment?.payment_method === "CASH" ? "เงินสด" : "พร้อมเพย์"}
+                        {payment?.payment_method === "CASH" ? "เงินสด" : "พร้อมเพย์"}
                             </span>
                             {payment?.status === "VERIFIED" || ["ORDER_ACCEPTED", "PAID", "PREPARING", "PRODUCTION", "READY_FOR_PICKUP", "COMPLETED"].includes(order.status) ? (
                               <Badge variant="success" size="sm">
@@ -1208,6 +1370,168 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
                   )}
                 </div>
               )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Order Item Details Edit Modal */}
+      {activeOrderForEdit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <Card className="w-full max-w-2xl bg-white rounded-3xl overflow-hidden shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <CardContent className="p-6 space-y-5">
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div>
+                  <h3 className="font-extrabold text-base text-slate-900 flex items-center gap-2">
+                    <Sparkles className="h-5 w-5 text-blue-600" />
+                    <span>แก้ไขรายละเอียดออเดอร์ #{activeOrderForEdit.order_number}</span>
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    ผู้สั่งซื้อ: {activeOrderForEdit.profile?.first_name} {activeOrderForEdit.profile?.last_name} {activeOrderForEdit.profile?.nickname ? `(${activeOrderForEdit.profile.nickname})` : ""} • รหัส: {activeOrderForEdit.profile?.student_id || "-"}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setActiveOrderForEdit(null)}
+                  className="text-slate-400 hover:text-slate-700 font-bold p-1.5 rounded-xl hover:bg-slate-100"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Editing Items List */}
+              <div className="space-y-4">
+                <h4 className="text-xs font-extrabold text-slate-800 uppercase tracking-wider">
+                  รายการสินค้าที่ต้องการแก้ไข ({editingItemsState.length} รายการ)
+                </h4>
+
+                {editingItemsState.map((item, idx) => (
+                  <div key={item.id} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+                    <div className="flex items-center justify-between font-bold text-xs text-slate-900">
+                      <span className="text-blue-700 font-mono">• {item.product_name_snapshot}</span>
+                      <span className="text-slate-500 font-mono">
+                        ราคาพื้นฐาน: ฿{item.base_price.toLocaleString()}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* Size Selector */}
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-slate-700">ขนาดไซส์เสื้อ *</label>
+                        <select
+                          value={item.size_name_snapshot}
+                          onChange={(e) => handleSizeChange(idx, e.target.value)}
+                          className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                        >
+                          {STANDARD_SIZES.map((sz) => (
+                            <option key={sz.size_name} value={sz.size_name}>
+                              ไซส์ {sz.size_name} {sz.price_adjustment > 0 ? `(+฿${sz.price_adjustment})` : "(+฿0)"}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Quantity */}
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-slate-700">จำนวนเสื้อ *</label>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleQuantityChange(idx, item.quantity - 1)}
+                            className="w-8 h-8 rounded-xl bg-white border border-slate-300 font-bold text-slate-700 flex items-center justify-center hover:bg-slate-100"
+                          >
+                            -
+                          </button>
+                          <Input
+                            type="number"
+                            min={1}
+                            value={item.quantity}
+                            onChange={(e) => handleQuantityChange(idx, Number(e.target.value))}
+                            className="text-center text-xs h-8 font-bold w-16"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleQuantityChange(idx, item.quantity + 1)}
+                            className="w-8 h-8 rounded-xl bg-white border border-slate-300 font-bold text-slate-700 flex items-center justify-center hover:bg-slate-100"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Custom Name */}
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-slate-700">ชื่อสกรีนหลังเสื้อ</label>
+                        <Input
+                          placeholder="เช่น บังวี"
+                          value={item.custom_name}
+                          onChange={(e) => handleCustomTextChange(idx, "custom_name", e.target.value)}
+                          className="text-xs h-9 bg-white"
+                        />
+                      </div>
+
+                      {/* Custom Number */}
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-slate-700">เบอร์สกรีนหลังเสื้อ</label>
+                        <Input
+                          placeholder="เช่น 10"
+                          value={item.custom_number}
+                          onChange={(e) => handleCustomTextChange(idx, "custom_number", e.target.value)}
+                          className="text-xs h-9 bg-white font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Item Subtotal Banner */}
+                    <div className="flex items-center justify-between pt-2 border-t border-slate-200/80 text-xs">
+                      <span className="text-slate-500 font-medium">
+                        (ราคาต่อตัว ฿{(item.base_price + item.size_price_snapshot).toLocaleString()} × {item.quantity})
+                      </span>
+                      <span className="font-extrabold text-blue-600 font-mono">
+                        รวมย่อย ฿{item.subtotal.toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Total Price Comparison Box */}
+              <div className="p-4 bg-gradient-to-r from-blue-900 to-indigo-900 text-white rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3 shadow-md">
+                <div>
+                  <span className="text-xs text-blue-200 block font-medium">
+                    ราคารวมเดิม: ฿{Number(activeOrderForEdit.total_amount).toLocaleString()}
+                  </span>
+                  <span className="text-lg font-black font-mono text-white flex items-center gap-2 mt-0.5">
+                    <span>ยอดรวมใหม่: ฿{computedEditTotal.toLocaleString()}</span>
+                    {computedEditTotal !== Number(activeOrderForEdit.total_amount) && (
+                      <span className={`text-xs px-2 py-0.5 rounded-lg font-bold ${computedEditTotal > Number(activeOrderForEdit.total_amount) ? "bg-amber-400 text-slate-950" : "bg-emerald-400 text-slate-950"}`}>
+                        {computedEditTotal > Number(activeOrderForEdit.total_amount) ? `+฿${computedEditTotal - Number(activeOrderForEdit.total_amount)}` : `-฿${Number(activeOrderForEdit.total_amount) - computedEditTotal}`}
+                      </span>
+                    )}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setActiveOrderForEdit(null)}
+                    className="rounded-xl text-xs font-bold bg-white/10 hover:bg-white/20 text-white border-white/20"
+                  >
+                    ยกเลิก
+                  </Button>
+
+                  <Button
+                    type="button"
+                    isLoading={isSavingEdit}
+                    onClick={handleSaveOrderEdits}
+                    className="rounded-xl text-xs font-bold bg-amber-400 hover:bg-amber-300 text-slate-950 shadow-sm"
+                  >
+                    <Check className="h-4 w-4 mr-1" />
+                    <span>บันทึกการแก้ไขออเดอร์</span>
+                  </Button>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </div>

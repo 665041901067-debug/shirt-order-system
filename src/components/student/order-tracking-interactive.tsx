@@ -66,6 +66,18 @@ export function OrderTrackingInteractive({ initialOrder, paymentMethods = [] }: 
   useEffect(() => {
     const supabase = createClient();
 
+    const fetchLatestOrder = async () => {
+      try {
+        const { data } = await supabase
+          .from("orders")
+          .select(`*, items:order_items(*), payment:payments(*)`)
+          .eq("id", order.id)
+          .single();
+
+        if (data) setOrder(data as Order);
+      } catch (e) {}
+    };
+
     const channel = supabase
       .channel(`order-tracking-live-${order.id}`)
       .on(
@@ -76,15 +88,7 @@ export function OrderTrackingInteractive({ initialOrder, paymentMethods = [] }: 
           table: "orders",
           filter: `id=eq.${order.id}`,
         },
-        async () => {
-          const { data } = await supabase
-            .from("orders")
-            .select(`*, items:order_items(*), payment:payments(*)`)
-            .eq("id", order.id)
-            .single();
-
-          if (data) setOrder(data as Order);
-        }
+        fetchLatestOrder
       )
       .on(
         "postgres_changes",
@@ -94,15 +98,17 @@ export function OrderTrackingInteractive({ initialOrder, paymentMethods = [] }: 
           table: "payments",
           filter: `order_id=eq.${order.id}`,
         },
-        async () => {
-          const { data } = await supabase
-            .from("orders")
-            .select(`*, items:order_items(*), payment:payments(*)`)
-            .eq("id", order.id)
-            .single();
-
-          if (data) setOrder(data as Order);
-        }
+        fetchLatestOrder
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "order_items",
+          filter: `order_id=eq.${order.id}`,
+        },
+        fetchLatestOrder
       )
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
@@ -112,8 +118,11 @@ export function OrderTrackingInteractive({ initialOrder, paymentMethods = [] }: 
         }
       });
 
+    window.addEventListener("app:order-changed", fetchLatestOrder);
+
     return () => {
       supabase.removeChannel(channel);
+      window.removeEventListener("app:order-changed", fetchLatestOrder);
     };
   }, [order.id]);
 
