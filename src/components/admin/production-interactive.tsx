@@ -133,21 +133,25 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
     o.items?.forEach((item) => {
       const sport = extractSportType(item);
       const cleanNote = cleanNoteWithoutSport(item.note);
-      productionList.push({
-        id: item.id,
-        orderNumber: o.order_number,
-        studentName: `${o.profile?.first_name || ""} ${o.profile?.last_name || ""}`.trim() || "ไม่ระบุ",
-        nickname: o.profile?.nickname || "-",
-        studentId: o.profile?.student_id || "-",
-        phone: o.profile?.phone || "-",
-        productName: item.product_name_snapshot || "เสื้อกีฬา",
-        sizeName: item.size_name_snapshot || "N/A",
-        customName: item.custom_name || "-",
-        customNumber: item.custom_number || "-",
-        sportType: sport,
-        note: cleanNote || "-",
-        status: o.status,
-      });
+      const qty = Math.max(1, Number(item.quantity) || 1);
+
+      for (let i = 0; i < qty; i++) {
+        productionList.push({
+          id: qty > 1 ? `${item.id}-${i + 1}` : item.id,
+          orderNumber: o.order_number,
+          studentName: `${o.profile?.first_name || ""} ${o.profile?.last_name || ""}`.trim() || "ไม่ระบุ",
+          nickname: o.profile?.nickname || "-",
+          studentId: o.profile?.student_id || "-",
+          phone: o.profile?.phone || "-",
+          productName: item.product_name_snapshot || "เสื้อกีฬา",
+          sizeName: item.size_name_snapshot || "N/A",
+          customName: item.custom_name || "-",
+          customNumber: item.custom_number || "-",
+          sportType: sport,
+          note: cleanNote || "-",
+          status: o.status,
+        });
+      }
     });
   });
 

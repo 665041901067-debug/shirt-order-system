@@ -861,7 +861,9 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
                   </div>
 
                   <div className="bg-slate-50 p-2.5 rounded-xl space-y-1.5 text-xs border border-slate-100">
-                    <span className="font-bold text-slate-700 block">รายการสินค้า ({order.items?.length || 0} ชิ้น):</span>
+                    <span className="font-bold text-slate-700 block">
+                      รายการสินค้า ({order.items?.reduce((sum, i) => sum + (Number(i.quantity) || 1), 0) || 0} ตัว):
+                    </span>
                     {order.items?.map((item) => {
                       const sport = extractSportType(item);
                       return (
@@ -1021,7 +1023,7 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
 
                         <td className="p-4">
                           <span className="font-bold text-slate-800 block text-xs">
-                            {order.items?.length || 0} รายการ
+                            {order.items?.reduce((sum, i) => sum + (Number(i.quantity) || 1), 0) || 0} ตัว ({order.items?.length || 0} รายการ)
                           </span>
                           <div className="text-[11px] text-slate-700 space-y-1.5 mt-1 max-w-[280px]">
                             {order.items?.map((i) => {
