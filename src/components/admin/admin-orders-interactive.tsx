@@ -178,6 +178,30 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
 
   const computedEditTotal = editingItemsState.reduce((sum, item) => sum + item.subtotal, 0);
 
+  const handleRestoreOrder = async (targetOrder: Order) => {
+    const isPaidBefore = targetOrder.payment?.status === "VERIFIED";
+    const restoredStatus: OrderStatus = isPaidBefore ? "ORDER_ACCEPTED" : "PENDING_PAYMENT";
+    const previousStatus = targetOrder.status;
+
+    // 1. Instant Optimistic State Update (0ms)
+    setOrders((prev) =>
+      prev.map((o) => (o.id === targetOrder.id ? { ...o, status: restoredStatus } : o))
+    );
+
+    toast.success(`ดึงออเดอร์ #${targetOrder.order_number} กลับมาจากสถานะยกเลิกเรียบร้อยแล้ว!`);
+
+    // 2. Backend update
+    const res = await updateOrderStatus(targetOrder.id, restoredStatus);
+    if (!res.success) {
+      setOrders((prev) =>
+        prev.map((o) => (o.id === targetOrder.id ? { ...o, status: previousStatus } : o))
+      );
+      toast.error("เกิดข้อผิดพลาดในการดึงออเดอร์กลับมา");
+    } else {
+      window.dispatchEvent(new CustomEvent("app:order-changed"));
+    }
+  };
+
   const handleSaveOrderEdits = async () => {
     if (!activeOrderForEdit) return;
 
@@ -899,26 +923,39 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
                         </Button>
                       )}
 
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => openEditOrderModal(order)}
-                        className="rounded-xl text-xs h-9 px-2.5 font-bold border-blue-200 text-blue-700 hover:bg-blue-50"
-                        title="แก้ไขรายละเอียดไซส์ ชื่อสกรีน เบอร์สกรีน หรือจำนวน"
-                      >
-                        <Edit3 className="h-3.5 w-3.5 mr-1" />
-                        <span>แก้ไขออเดอร์</span>
-                      </Button>
+                      {order.status === "CANCELLED" ? (
+                        <Button
+                          size="sm"
+                          onClick={() => handleRestoreOrder(order)}
+                          className="rounded-xl text-xs h-9 px-3 font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-xs"
+                          title="ดึงออเดอร์นี้กลับมาจากสถานะยกเลิก"
+                        >
+                          <RotateCcw className="h-3.5 w-3.5 mr-1" />
+                          <span>ดึงออเดอร์กลับมา</span>
+                        </Button>
+                      ) : (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openEditOrderModal(order)}
+                            className="rounded-xl text-xs h-9 px-2.5 font-bold border-blue-200 text-blue-700 hover:bg-blue-50"
+                            title="แก้ไขรายละเอียดไซส์ ชื่อสกรีน เบอร์สกรีน หรือจำนวน"
+                          >
+                            <Edit3 className="h-3.5 w-3.5 mr-1" />
+                            <span>แก้ไขออเดอร์</span>
+                          </Button>
 
-                      {/* Large Easy-to-Tap Quick Status Change Button */}
-                      <Button
-                        size="sm"
-                        onClick={() => setActiveOrderForStatusChange(order)}
-                        className="rounded-xl text-xs h-9 px-2.5 font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-xs"
-                      >
-                        <SlidersHorizontal className="h-3.5 w-3.5 mr-1" />
-                        <span>เปลี่ยนสถานะ</span>
-                      </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => setActiveOrderForStatusChange(order)}
+                            className="rounded-xl text-xs h-9 px-2.5 font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-xs"
+                          >
+                            <SlidersHorizontal className="h-3.5 w-3.5 mr-1" />
+                            <span>เปลี่ยนสถานะ</span>
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </Card>
@@ -1017,7 +1054,7 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
                         <td className="p-4 whitespace-nowrap">
                           <div className="space-y-1">
                             <span className="font-semibold text-slate-800 block">
-                        {payment?.payment_method === "CASH" ? "เงินสด" : "พร้อมเพย์"}
+                              {payment?.payment_method === "CASH" ? "เงินสด" : "พร้อมเพย์"}
                             </span>
                             {payment?.status === "VERIFIED" || ["ORDER_ACCEPTED", "PAID", "PREPARING", "PRODUCTION", "READY_FOR_PICKUP", "COMPLETED"].includes(order.status) ? (
                               <Badge variant="success" size="sm">
@@ -1081,25 +1118,49 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
                               </Button>
                             )}
 
-                            {/* Change Status Button */}
-                            <Button
-                              size="sm"
-                              onClick={() => setActiveOrderForStatusChange(order)}
-                              className="rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white"
-                            >
-                              <Edit3 className="h-3.5 w-3.5 mr-1" />
-                              <span>เปลี่ยนสถานะ</span>
-                            </Button>
+                            {order.status === "CANCELLED" ? (
+                              <Button
+                                size="sm"
+                                onClick={() => handleRestoreOrder(order)}
+                                className="rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-xs"
+                                title="ดึงออเดอร์นี้กลับมาจากสถานะยกเลิก"
+                              >
+                                <RotateCcw className="h-3.5 w-3.5 mr-1" />
+                                <span>ดึงออเดอร์กลับมา</span>
+                              </Button>
+                            ) : (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => openEditOrderModal(order)}
+                                  className="rounded-xl text-xs font-bold border-blue-200 text-blue-700 hover:bg-blue-50"
+                                  title="แก้ไขรายละเอียดไซส์ ชื่อสกรีน เบอร์สกรีน หรือจำนวน"
+                                >
+                                  <Edit3 className="h-3.5 w-3.5 mr-1" />
+                                  <span>แก้ไขออเดอร์</span>
+                                </Button>
 
-                            <Button
-                              size="sm"
-                              variant="danger"
-                              onClick={() => handleStatusChange(order, "CANCELLED")}
-                              className="rounded-xl p-2"
-                              title="ยกเลิกออเดอร์"
-                            >
-                              <Ban className="h-3.5 w-3.5" />
-                            </Button>
+                                <Button
+                                  size="sm"
+                                  onClick={() => setActiveOrderForStatusChange(order)}
+                                  className="rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white"
+                                >
+                                  <SlidersHorizontal className="h-3.5 w-3.5 mr-1" />
+                                  <span>เปลี่ยนสถานะ</span>
+                                </Button>
+
+                                <Button
+                                  size="sm"
+                                  variant="danger"
+                                  onClick={() => handleStatusChange(order, "CANCELLED")}
+                                  className="rounded-xl p-2"
+                                  title="ยกเลิกออเดอร์"
+                                >
+                                  <Ban className="h-3.5 w-3.5" />
+                                </Button>
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>
