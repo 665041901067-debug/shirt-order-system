@@ -84,6 +84,7 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
   const [activeOrderForEdit, setActiveOrderForEdit] = useState<Order | null>(null);
   const [editingItemsState, setEditingItemsState] = useState<{
     id: string;
+    product_id: string;
     product_name_snapshot: string;
     base_price: number;
     size_name_snapshot: string;
@@ -94,21 +95,43 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
     quantity: number;
     subtotal: number;
   }[]>([]);
+  const [productSizesMap, setProductSizesMap] = useState<Record<string, { size_name: string; price_adjustment: number }[]>>({});
+  const [isLoadingSizes, setIsLoadingSizes] = useState(false);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
-  const STANDARD_SIZES = [
-    { size_name: "S", price_adjustment: 0 },
-    { size_name: "M", price_adjustment: 0 },
-    { size_name: "L", price_adjustment: 0 },
-    { size_name: "XL", price_adjustment: 20 },
-    { size_name: "2XL", price_adjustment: 30 },
-    { size_name: "3XL", price_adjustment: 50 },
-    { size_name: "4XL", price_adjustment: 70 },
-    { size_name: "5XL", price_adjustment: 90 },
-  ];
-
-  const openEditOrderModal = (order: Order) => {
+  const openEditOrderModal = async (order: Order) => {
     setActiveOrderForEdit(order);
+    setIsLoadingSizes(true);
+
+    const supabase = createClient();
+    
+    // 1. Fetch exact product_sizes for all products in this order directly from Supabase!
+    const productIds = Array.from(new Set((order.items || []).map((i) => i.product_id).filter(Boolean)));
+    
+    let fetchedSizesMap: Record<string, { size_name: string; price_adjustment: number }[]> = {};
+
+    if (productIds.length > 0) {
+      const { data: dbProducts } = await supabase
+        .from("products")
+        .select("id, sizes:product_sizes(size_name, price_adjustment, sort_order)")
+        .in("id", productIds);
+
+      if (dbProducts) {
+        dbProducts.forEach((p: any) => {
+          if (p.sizes && Array.isArray(p.sizes)) {
+            const sorted = [...p.sizes].sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+            fetchedSizesMap[p.id] = sorted.map((s: any) => ({
+              size_name: s.size_name,
+              price_adjustment: Number(s.price_adjustment) || 0,
+            }));
+          }
+        });
+      }
+    }
+
+    setProductSizesMap(fetchedSizesMap);
+
+    // 2. Map editing state using current item data
     const items = (order.items || []).map((item) => {
       const qty = Number(item.quantity) || 1;
       const currentSubtotal = Number(item.subtotal) || 0;
@@ -120,6 +143,7 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
 
       return {
         id: item.id,
+        product_id: item.product_id,
         product_name_snapshot: item.product_name_snapshot,
         base_price: basePrice,
         size_name_snapshot: item.size_name_snapshot || "M",
@@ -133,14 +157,36 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
     });
 
     setEditingItemsState(items);
+    setIsLoadingSizes(false);
+  };
+
+  const getItemAvailableSizes = (productId: string) => {
+    if (productSizesMap[productId] && productSizesMap[productId].length > 0) {
+      return productSizesMap[productId];
+    }
+    // Default product_sizes fallback matching system config
+    return [
+      { size_name: "S", price_adjustment: 0 },
+      { size_name: "M", price_adjustment: 0 },
+      { size_name: "L", price_adjustment: 0 },
+      { size_name: "XL", price_adjustment: 0 },
+      { size_name: "2XL", price_adjustment: 0 },
+      { size_name: "3XL", price_adjustment: 50 },
+      { size_name: "4XL", price_adjustment: 50 },
+      { size_name: "5XL", price_adjustment: 50 },
+      { size_name: "6XL", price_adjustment: 100 },
+      { size_name: "7XL", price_adjustment: 100 },
+      { size_name: "8XL", price_adjustment: 100 },
+    ];
   };
 
   const handleSizeChange = (itemIdx: number, newSizeName: string) => {
     setEditingItemsState((prev) => {
       const updated = [...prev];
       const item = { ...updated[itemIdx] };
-      const matchedSize = STANDARD_SIZES.find((s) => s.size_name === newSizeName);
-      const newSizePrice = matchedSize ? matchedSize.price_adjustment : item.size_price_snapshot;
+      const availableSizes = getItemAvailableSizes(item.product_id);
+      const matchedSize = availableSizes.find((s) => s.size_name === newSizeName);
+      const newSizePrice = matchedSize ? matchedSize.price_adjustment : 0;
 
       item.size_name_snapshot = newSizeName;
       item.size_price_snapshot = newSizePrice;
@@ -1486,7 +1532,7 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
                           onChange={(e) => handleSizeChange(idx, e.target.value)}
                           className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
                         >
-                          {STANDARD_SIZES.map((sz) => (
+                          {getItemAvailableSizes(item.product_id).map((sz) => (
                             <option key={sz.size_name} value={sz.size_name}>
                               ไซส์ {sz.size_name} {sz.price_adjustment > 0 ? `(+฿${sz.price_adjustment})` : "(+฿0)"}
                             </option>
