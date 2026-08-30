@@ -44,3 +44,8 @@ export async function GET() {
     );
   }
 }
+
+// UptimeRobot sends HEAD HTTP requests by default. Support HEAD method to return HTTP 200 OK.
+export async function HEAD() {
+  return GET();
+}
