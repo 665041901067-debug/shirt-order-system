@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import ExcelJS from "exceljs";
 import { Order, OrderStatus, PaymentStatus } from "@/types";
 import { updateOrderStatus, verifyPayment, clearAllOrdersData, updateOrderDetails } from "@/services/admin";
 import { getStatusBadgeVariant, getStatusLabel } from "@/lib/order-status";
@@ -31,7 +32,9 @@ import {
   Check,
   RotateCcw,
   Edit3,
-  Trash2
+  Trash2,
+  Download,
+  FileSpreadsheet
 } from "lucide-react";
 
 import { useToast } from "@/components/ui/toast";
@@ -550,6 +553,163 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
     await verifyPayment(paymentId, newPaymentStatus);
   };
 
+  // 1-Click Order List Excel Export (ดึงจากฐานข้อมูลตามตัวกรองและสถานะจริง)
+  const handleExportOrdersExcel = async (targetOrders = filteredOrders) => {
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "CPE & IoT Sportswear System";
+    workbook.created = new Date();
+
+    const sheet = workbook.addWorksheet("รายการคำสั่งซื้อ");
+    sheet.columns = [
+      { header: "ลำดับ", key: "no", width: 8 },
+      { header: "เลขที่ออเดอร์", key: "order_number", width: 18 },
+      { header: "ชื่อ-นามสกุล ผู้สั่งซื้อ", key: "student_name", width: 25 },
+      { header: "ชื่อเล่น", key: "nickname", width: 14 },
+      { header: "รหัสนักศึกษา", key: "student_id", width: 16 },
+      { header: "ชั้นปี", key: "academic_year", width: 14 },
+      { header: "เบอร์โทรศัพท์", key: "phone", width: 16 },
+      { header: "รายการสินค้า, ไซส์ และสกรีน", key: "items_summary", width: 45 },
+      { header: "จำนวนเสื้อ (ตัว)", key: "total_qty", width: 16 },
+      { header: "ยอดรวมเงิน (บาท)", key: "total_amount", width: 18 },
+      { header: "ช่องทางชำระเงิน", key: "payment_method", width: 20 },
+      { header: "สถานะการชำระเงิน", key: "payment_status", width: 18 },
+      { header: "สถานะคำสั่งซื้อ", key: "order_status", width: 18 },
+      { header: "วันที่สั่งซื้อ", key: "created_at", width: 20 },
+    ];
+
+    const headerRow = sheet.getRow(1);
+    headerRow.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
+    headerRow.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FF1E3A8A" }, // Navy Blue
+    };
+    headerRow.alignment = { vertical: "middle", horizontal: "center" };
+
+    targetOrders.forEach((o, idx) => {
+      const totalQty = (o.items || []).reduce((sum, item) => sum + (Number(item.quantity) || 1), 0);
+      const itemsSummary = (o.items || [])
+        .map((item) => {
+          const size = item.size_name_snapshot || "N/A";
+          const q = item.quantity || 1;
+          const customName = item.custom_name && item.custom_name !== "-" ? `ชื่อ: ${item.custom_name}` : "";
+          const customNum = item.custom_number && item.custom_number !== "-" ? `เบอร์: #${item.custom_number}` : "";
+          const sport = extractSportType(item);
+          const details = [customName, customNum, sport !== "ไม่ได้เล่นกีฬา" ? `กีฬา: ${sport}` : ""]
+            .filter(Boolean)
+            .join(", ");
+          const detailsStr = details ? ` (${details})` : "";
+          return `• ${item.product_name_snapshot || "เสื้อ"} [ไซส์ ${size}]${detailsStr} x${q}`;
+        })
+        .join("\n");
+
+      const row = sheet.addRow({
+        no: idx + 1,
+        order_number: o.order_number,
+        student_name: `${o.profile?.first_name || ""} ${o.profile?.last_name || ""}`.trim() || "ไม่ระบุ",
+        nickname: o.profile?.nickname || "-",
+        student_id: o.profile?.student_id || "-",
+        academic_year: o.profile?.academic_year || "-",
+        phone: o.profile?.phone || "-",
+        items_summary: itemsSummary,
+        total_qty: totalQty,
+        total_amount: Number(o.total_amount) || 0,
+        payment_method: o.payment?.payment_method === "QR_PAYMENT" ? "พร้อมเพย์" : o.payment?.payment_method === "CASH" ? "เงินสด" : "ยังไม่ระบุ",
+        payment_status: o.payment?.status === "VERIFIED" ? "อนุมัติแล้ว" : o.payment?.status === "PENDING" ? "รอตรวจสอบ" : "ยังไม่ชำระ",
+        order_status: getStatusLabel(o.status),
+        created_at: o.created_at ? new Date(o.created_at).toLocaleString("th-TH") : "-",
+      });
+
+      row.alignment = { vertical: "middle" };
+      row.getCell("no").alignment = { horizontal: "center" };
+      row.getCell("order_number").alignment = { horizontal: "center" };
+      row.getCell("nickname").alignment = { horizontal: "center" };
+      row.getCell("student_id").alignment = { horizontal: "center" };
+      row.getCell("academic_year").alignment = { horizontal: "center" };
+      row.getCell("total_qty").alignment = { horizontal: "center" };
+      row.getCell("total_amount").alignment = { horizontal: "right" };
+      row.getCell("order_status").alignment = { horizontal: "center" };
+    });
+
+    // Total Row
+    const activeTargetOrders = targetOrders.filter((o) => o.status !== "CANCELLED");
+    const totalItemsCount = activeTargetOrders.reduce((sum, o) => {
+      return sum + (o.items || []).reduce((iSum, item) => iSum + (Number(item.quantity) || 1), 0);
+    }, 0);
+
+    const totalMoneySum = activeTargetOrders.reduce((sum, o) => {
+      return sum + (Number(o.total_amount) || 0);
+    }, 0);
+
+    const totalRow = sheet.addRow({
+      no: "รวม",
+      order_number: `${targetOrders.length} รายการ`,
+      student_name: "-",
+      nickname: "-",
+      student_id: "-",
+      academic_year: "-",
+      phone: "-",
+      items_summary: "รวมยอดสุทธิ (เฉพาะออเดอร์ที่ไม่ได้ยกเลิก)",
+      total_qty: totalItemsCount,
+      total_amount: totalMoneySum,
+      payment_method: "-",
+      payment_status: "-",
+      order_status: "-",
+      created_at: "-",
+    });
+    totalRow.font = { bold: true };
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    const statusLabelStr = selectedStatusFilter === "ALL" ? "คำสั่งซื้อทั้งหมด" : getStatusLabel(selectedStatusFilter);
+    anchor.download = `Orders_List_${statusLabelStr}_${new Date().toISOString().split("T")[0]}.xlsx`;
+    anchor.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  // CSV Export
+  const handleExportOrdersCSV = (targetOrders = filteredOrders) => {
+    let csvContent = "\uFEFFลำดับ,เลขที่ออเดอร์,ชื่อ-นามสกุล,ชื่อเล่น,รหัสนักศึกษา,ชั้นปี,เบอร์โทร,รายการสินค้า & ไซส์ & สกรีน,จำนวนเสื้อ (ตัว),ยอดเงินรวม (บาท),ช่องทางชำระเงิน,สถานะออเดอร์,วันที่สั่งซื้อ\n";
+    targetOrders.forEach((o, idx) => {
+      const totalQty = (o.items || []).reduce((sum, item) => sum + (Number(item.quantity) || 1), 0);
+      const itemsSummary = (o.items || [])
+        .map((item) => {
+          const size = item.size_name_snapshot || "N/A";
+          const q = item.quantity || 1;
+          const customName = item.custom_name && item.custom_name !== "-" ? `ชื่อ:${item.custom_name}` : "";
+          const customNum = item.custom_number && item.custom_number !== "-" ? `เบอร์:#${item.custom_number}` : "";
+          const details = [customName, customNum].filter(Boolean).join(" ");
+          return `${item.product_name_snapshot || "เสื้อ"} [${size}] ${details} x${q}`;
+        })
+        .join(" | ");
+
+      const studentName = `${o.profile?.first_name || ""} ${o.profile?.last_name || ""}`.trim() || "ไม่ระบุ";
+      const nickname = o.profile?.nickname || "-";
+      const studentId = o.profile?.student_id || "-";
+      const year = o.profile?.academic_year || "-";
+      const phone = o.profile?.phone || "-";
+      const payMethod = o.payment?.payment_method === "QR_PAYMENT" ? "พร้อมเพย์" : o.payment?.payment_method === "CASH" ? "เงินสด" : "ยังไม่ระบุ";
+      const statusLabel = getStatusLabel(o.status);
+      const dateStr = o.created_at ? new Date(o.created_at).toLocaleString("th-TH") : "-";
+
+      csvContent += `"${idx + 1}","${o.order_number}","${studentName}","${nickname}","${studentId}","${year}","${phone}","${itemsSummary}","${totalQty}","${o.total_amount}","${payMethod}","${statusLabel}","${dateStr}"\n`;
+    });
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const statusLabelStr = selectedStatusFilter === "ALL" ? "คำสั่งซื้อทั้งหมด" : getStatusLabel(selectedStatusFilter);
+    a.download = `Orders_List_${statusLabelStr}_${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-6">
       
@@ -574,16 +734,36 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
           </h1>
         </div>
 
-        {/* Action Buttons: Clear Orders, Smart Scanner & Filter Toggle */}
+        {/* Action Buttons: Export, Clear Orders, Smart Scanner & Filter Toggle */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* Export Buttons */}
+          <Button
+            onClick={() => handleExportOrdersCSV(filteredOrders)}
+            variant="outline"
+            className="rounded-xl font-bold text-xs bg-white text-slate-700 hover:bg-slate-50 border-slate-200 shadow-2xs"
+            title="ส่งออกรายการตามตัวกรองเป็น CSV"
+          >
+            <Download className="h-4 w-4 mr-1.5 text-slate-500" />
+            <span>ส่งออก CSV ({filteredOrders.length})</span>
+          </Button>
+
+          <Button
+            onClick={() => handleExportOrdersExcel(filteredOrders)}
+            className="rounded-xl font-bold text-xs bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs"
+            title="ส่งออกรายการออเดอร์ตามตัวกรองเป็นไฟล์ Excel"
+          >
+            <FileSpreadsheet className="h-4 w-4 mr-1.5 text-white" />
+            <span>ส่งออก Excel ({filteredOrders.length})</span>
+          </Button>
+
           <Button
             variant="outline"
             onClick={() => setIsClearAllModalOpen(true)}
-            className="rounded-xl text-xs font-bold text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300 transition-all shadow-xs"
+            className="rounded-xl text-xs font-bold text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300 transition-all shadow-2xs"
             title="ล้างข้อมูลคำสั่งซื้อทดลองทั้งหมดเพื่อเริ่มระบบใหม่"
           >
             <Trash2 className="h-4 w-4 mr-1.5 text-red-500" />
-            <span>ล้างออเดอร์ทั้งหมด (เป็น 0)</span>
+            <span>ล้างออเดอร์ (0)</span>
           </Button>
 
           <Button
@@ -591,7 +771,7 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
             className="rounded-xl bg-slate-900 hover:bg-slate-800 text-white shadow-md text-xs font-bold"
           >
             <QrCode className="h-4 w-4 mr-1.5 text-blue-400" />
-            <span>สแกนคิวอาร์โค้ดรับสินค้า</span>
+            <span>สแกนคิวอาร์</span>
           </Button>
 
           <Button
