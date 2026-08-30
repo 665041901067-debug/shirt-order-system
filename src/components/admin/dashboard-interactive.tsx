@@ -79,6 +79,9 @@ export function DashboardInteractive({ initialMetrics, orders: initialOrders }: 
       } catch (e) {}
     };
 
+    // Immediate fetch on mount to guarantee fresh client data from Supabase
+    fetchLatestData();
+
     const channel = supabase
       .channel(`admin-dashboard-live-${Date.now()}`)
       .on(
@@ -158,21 +161,21 @@ export function DashboardInteractive({ initialMetrics, orders: initialOrders }: 
     yearCounts[yr].totalSales += Number(o.total_amount) || 0;
   });
 
-  // 4. Financial Status Totals
-  const paidSales = orders
+  // 4. Financial Status Totals (From ACTIVE orders only)
+  const paidSales = activeOrders
     .filter((o) => ["PAID", "ORDER_ACCEPTED", "READY_FOR_PICKUP", "COMPLETED"].includes(o.status))
     .reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
 
-  const pendingReviewSales = orders
+  const pendingReviewSales = activeOrders
     .filter((o) => o.status === "PAYMENT_REVIEW")
     .reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
 
-  const pendingPaymentSales = orders
+  const pendingPaymentSales = activeOrders
     .filter((o) => o.status === "PENDING_PAYMENT")
     .reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
 
   // 5. Recent 5 Orders
-  const recentOrders = orders.slice(0, 5);
+  const recentOrders = activeOrders.slice(0, 5);
 
   return (
     <div className="space-y-8">
@@ -198,7 +201,7 @@ export function DashboardInteractive({ initialMetrics, orders: initialOrders }: 
           <CardContent className="p-5 flex items-center justify-between">
             <div>
               <span className="text-xs font-medium text-slate-500">ยอดคำสั่งซื้อทั้งหมด</span>
-              <h3 className="text-2xl font-extrabold text-slate-900 mt-1">{metrics.totalOrders} รายการ</h3>
+              <h3 className="text-2xl font-extrabold text-slate-900 mt-1">{activeOrders.length} รายการ</h3>
               <span className="text-[11px] text-blue-600 font-semibold mt-1 block">
                 รวมเสื้อทั้งสิ้น {totalItemsCount} ตัว
               </span>
