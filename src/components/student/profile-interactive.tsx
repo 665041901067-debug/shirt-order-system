@@ -11,17 +11,17 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { 
-  User, 
-  Phone, 
-  IdCard, 
-  GraduationCap, 
-  Edit, 
-  ShieldCheck, 
-  Lock, 
-  Save, 
-  Eye, 
-  EyeOff, 
+import {
+  User,
+  Phone,
+  IdCard,
+  GraduationCap,
+  Edit,
+  ShieldCheck,
+  Lock,
+  Save,
+  Eye,
+  EyeOff,
   AlertCircle,
   KeyRound,
   Mail
@@ -57,7 +57,7 @@ export function ProfileInteractive({ initialProfile }: Props) {
           .eq("id", initialProfile.id)
           .single();
         if (data) setProfile((prev) => ({ ...prev, ...data }));
-      } catch (e) {}
+      } catch (e) { }
     };
 
     const channel = supabase
@@ -241,7 +241,7 @@ export function ProfileInteractive({ initialProfile }: Props) {
 
   return (
     <div className="space-y-6">
-      
+
       {/* Header (No subtitle, clean Thai) */}
       <div>
         <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
@@ -273,7 +273,7 @@ export function ProfileInteractive({ initialProfile }: Props) {
         </CardHeader>
 
         <CardContent className="p-6 sm:p-8 space-y-6">
-          
+
           {errorMsg && (
             <div className="p-3 text-xs bg-red-50 text-red-600 border border-red-200 rounded-xl flex items-center gap-2">
               <AlertCircle className="h-4 w-4 shrink-0" />
@@ -397,7 +397,7 @@ export function ProfileInteractive({ initialProfile }: Props) {
             /* View Details Mode */
             <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 text-xs">
-                
+
                 <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl space-y-1">
                   <span className="text-slate-400 font-medium flex items-center gap-1.5">
                     <User className="h-3.5 w-3.5 text-blue-600" />
