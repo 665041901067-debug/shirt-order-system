@@ -21,7 +21,11 @@ import {
   FileText,
   Printer,
   CheckCircle2,
-  Trophy
+  Trophy,
+  ArrowUpDown,
+  RotateCcw,
+  SlidersHorizontal,
+  Check
 } from "lucide-react";
 import { SPORT_TYPES, extractSportType, cleanNoteWithoutSport, getSportBadgeColor } from "@/lib/sports";
 
@@ -41,6 +45,8 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
   const [selectedSizeFilter, setSelectedSizeFilter] = useState<string>("ALL");
   const [selectedSportFilter, setSelectedSportFilter] = useState<string>("ALL");
   const [selectedCustomFilter, setSelectedCustomFilter] = useState<string>("ALL");
+  const [sortBy, setSortBy] = useState<string>("ORDER_ASC");
+  const [exportScope, setExportScope] = useState<"FILTERED" | "ALL">("FILTERED");
 
   useEffect(() => {
     setSummary(initialSummary);
@@ -216,10 +222,53 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
     return matchesSearch && matchesSize && matchesSport && matchesCustom;
   });
 
+  // Sorted List based on admin preference
+  const filteredAndSortedList = [...filteredList].sort((a, b) => {
+    if (sortBy === "ORDER_ASC") {
+      return a.orderNumber.localeCompare(b.orderNumber, undefined, { numeric: true });
+    }
+    if (sortBy === "ORDER_DESC") {
+      return b.orderNumber.localeCompare(a.orderNumber, undefined, { numeric: true });
+    }
+    if (sortBy === "SIZE_ASC") {
+      const idxA = standardSizeOrder.indexOf(a.sizeName.toUpperCase());
+      const idxB = standardSizeOrder.indexOf(b.sizeName.toUpperCase());
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.sizeName.localeCompare(b.sizeName);
+    }
+    if (sortBy === "STUDENT_ID_ASC") {
+      return a.studentId.localeCompare(b.studentId, undefined, { numeric: true });
+    }
+    if (sortBy === "STUDENT_NAME_ASC") {
+      return a.studentName.localeCompare(b.studentName, "th");
+    }
+    if (sortBy === "SPORT_ASC") {
+      return a.sportType.localeCompare(b.sportType, "th");
+    }
+    return 0;
+  });
+
+  const exportList = exportScope === "FILTERED" ? filteredAndSortedList : productionList;
   const hasData = productionList.length > 0;
+  const isFilterActive =
+    search !== "" ||
+    selectedSizeFilter !== "ALL" ||
+    selectedSportFilter !== "ALL" ||
+    selectedCustomFilter !== "ALL" ||
+    sortBy !== "ORDER_ASC";
+
+  const handleResetFilters = () => {
+    setSearch("");
+    setSelectedSizeFilter("ALL");
+    setSelectedSportFilter("ALL");
+    setSelectedCustomFilter("ALL");
+    setSortBy("ORDER_ASC");
+  };
 
   // 1-Click Excel Export formatted specifically for Screen & Sewing Factory + Distributors
-  const handleExportExcel = async () => {
+  const handleExportExcel = async (exportItems = exportList) => {
     const workbook = new ExcelJS.Workbook();
     workbook.creator = "CPE & IoT Sportswear System";
     workbook.created = new Date();
@@ -252,7 +301,7 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
     };
     headerRow.alignment = { vertical: "middle", horizontal: "center" };
 
-    productionList.forEach((item, index) => {
+    exportItems.forEach((item, index) => {
       const row = jobSheet.addRow({
         no: index + 1,
         product_name: item.productName,
@@ -296,7 +345,7 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
 
     // Group by product and size
     const productSizeMap: Record<string, { productName: string; sizeName: string; count: number; nameCount: number; numberCount: number }> = {};
-    productionList.forEach((p) => {
+    exportItems.forEach((p) => {
       const key = `${p.productName}___${p.sizeName}`;
       if (!productSizeMap[key]) {
         productSizeMap[key] = {
@@ -326,9 +375,9 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
     const totalRow = summarySheet.addRow({
       product_name: "รวมทั้งหมด (TOTAL)",
       size: "-",
-      count: productionList.length,
-      name_count: productionList.filter((p) => p.customName !== "-").length,
-      number_count: productionList.filter((p) => p.customNumber !== "-").length,
+      count: exportItems.length,
+      name_count: exportItems.filter((p) => p.customName !== "-").length,
+      number_count: exportItems.filter((p) => p.customNumber !== "-").length,
     });
     totalRow.font = { bold: true };
 
@@ -347,7 +396,17 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
       fgColor: { argb: "FF059669" }, // Emerald Green
     };
 
-    sportSummary.forEach((s) => {
+    const exportSportSummary = SPORT_TYPES.map((sport) => {
+      const count = exportItems.filter((p) => {
+        if (sport === "ไม่ได้เล่นกีฬา") {
+          return p.sportType === "ไม่ได้เล่นกีฬา" || !p.sportType;
+        }
+        return p.sportType.includes(sport);
+      }).length;
+      return { sport, count };
+    }).filter((s) => s.count > 0);
+
+    exportSportSummary.forEach((s) => {
       sportSheet.addRow({
         sport: s.sport,
         count: s.count,
@@ -356,7 +415,7 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
 
     const sportTotalRow = sportSheet.addRow({
       sport: "รวมทั้งหมด (TOTAL)",
-      count: productionList.length,
+      count: exportItems.length,
     });
     sportTotalRow.font = { bold: true };
 
@@ -367,23 +426,27 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
     const url = window.URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `Factory_Production_Job_Sheet_${new Date().toISOString().split("T")[0]}.xlsx`;
+    const isFiltered = exportItems.length !== productionList.length;
+    const filenameSuffix = isFiltered ? `Filtered_${exportItems.length}_items` : "All_items";
+    anchor.download = `Factory_Production_Job_Sheet_${filenameSuffix}_${new Date().toISOString().split("T")[0]}.xlsx`;
     anchor.click();
     window.URL.revokeObjectURL(url);
   };
 
   // CSV Export for Quick View
-  const handleExportCSV = () => {
-    let csvContent = "\uFEFFลำดับ,ประเภทกีฬา,ไซส์เสื้อ,ชื่อหลังเสื้อ,เบอร์หลังเสื้อ,ชื่อผู้สั่งซื้อ,รหัสนักศึกษา,เบอร์โทร,หมายเหตุ,เลขที่ออเดอร์\n";
-    productionList.forEach((item, idx) => {
-      csvContent += `"${idx + 1}","${item.sportType}","${item.sizeName}","${item.customName}","${item.customNumber}","${item.studentName}","${item.studentId}","${item.phone}","${item.note}","${item.orderNumber}"\n`;
+  const handleExportCSV = (exportItems = exportList) => {
+    let csvContent = "\uFEFFลำดับ,ประเภทกีฬา,ไซส์เสื้อ,ชื่อหลังเสื้อ,เบอร์หลังเสื้อ,ชื่อผู้สั่งซื้อ,ชื่อเล่น,รหัสนักศึกษา,เบอร์โทร,หมายเหตุ,เลขที่ออเดอร์\n";
+    exportItems.forEach((item, idx) => {
+      csvContent += `"${idx + 1}","${item.sportType}","${item.sizeName}","${item.customName}","${item.customNumber}","${item.studentName}","${item.nickname}","${item.studentId}","${item.phone}","${item.note}","${item.orderNumber}"\n`;
     });
 
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `Factory_Production_Job_Sheet_${new Date().toISOString().split("T")[0]}.csv`;
+    const isFiltered = exportItems.length !== productionList.length;
+    const filenameSuffix = isFiltered ? `Filtered_${exportItems.length}_items` : "All_items";
+    a.download = `Factory_Production_Job_Sheet_${filenameSuffix}_${new Date().toISOString().split("T")[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -392,7 +455,7 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
     <div className="space-y-6">
       
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
             <Factory className="h-6 w-6 text-blue-600" />
@@ -400,24 +463,48 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
           </h1>
         </div>
 
-        {/* Action Export Buttons */}
+        {/* Action Export Controls */}
         {hasData && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Export Scope Selector */}
+            <div className="bg-slate-100 p-1 rounded-xl flex items-center gap-1 border border-slate-200">
+              <button
+                onClick={() => setExportScope("FILTERED")}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                  exportScope === "FILTERED"
+                    ? "bg-white text-blue-700 shadow-2xs"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                ตามตัวกรอง ({filteredAndSortedList.length})
+              </button>
+              <button
+                onClick={() => setExportScope("ALL")}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                  exportScope === "ALL"
+                    ? "bg-white text-blue-700 shadow-2xs"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                ทั้งหมด ({productionList.length})
+              </button>
+            </div>
+
             <Button
-              onClick={handleExportCSV}
+              onClick={() => handleExportCSV(exportList)}
               variant="outline"
               className="rounded-xl font-bold text-xs bg-white text-slate-700 hover:bg-slate-50 border-slate-200"
             >
               <Download className="h-4 w-4 mr-1.5 text-slate-500" />
-              <span>ส่งออก CSV</span>
+              <span>ส่งออก CSV ({exportList.length})</span>
             </Button>
 
             <Button
-              onClick={handleExportExcel}
-              className="rounded-xl font-bold text-xs bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm"
+              onClick={() => handleExportExcel(exportList)}
+              className="rounded-xl font-bold text-xs bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs"
             >
               <FileSpreadsheet className="h-4 w-4 mr-1.5 text-white" />
-              <span>ส่งออก Excel ส่งโรงงาน & คนแจก</span>
+              <span>ส่งออก Excel ({exportList.length})</span>
             </Button>
           </div>
         )}
@@ -482,7 +569,7 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
                   onClick={() => setSelectedSizeFilter(selectedSizeFilter === s.size_name ? "ALL" : s.size_name)}
                   className={`p-3 rounded-xl border text-xs font-bold transition-all ${
                     selectedSizeFilter === s.size_name
-                      ? "border-blue-600 bg-blue-600 text-white shadow-sm"
+                      ? "border-blue-600 bg-blue-600 text-white shadow-xs"
                       : "border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-800"
                   }`}
                 >
@@ -494,7 +581,7 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
             </div>
           </Card>
 
-          {/* 3. SEARCH & FILTER CONTROLS */}
+          {/* 3. SEARCH, SORT & FILTER CONTROLS */}
           <div className="space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex flex-wrap items-center gap-1.5 pb-1">
@@ -523,61 +610,101 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
                 ))}
               </div>
 
-              <div className="w-full sm:w-72">
-                <Input
-                  placeholder="ค้นหาชื่อผู้สั่ง, กีฬา, ชื่อสกรีน, เบอร์..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="rounded-xl text-xs"
-                />
+              {/* Search & Sort Controls */}
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <div className="w-full sm:w-64">
+                  <Input
+                    placeholder="ค้นหาชื่อผู้สั่ง, กีฬา, ชื่อสกรีน, เบอร์..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="rounded-xl text-xs bg-white"
+                  />
+                </div>
               </div>
             </div>
 
-            {/* Custom Screen & Sport Filter Bar */}
+            {/* Custom Screen & Sport Filter & Sort Bar */}
             <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200/80">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-xs font-bold text-slate-600 mr-1">กรองสกรีน:</span>
-                {[
-                  { key: "ALL", label: "ทั้งหมด" },
-                  { key: "HAS_NAME", label: "มีชื่อสกรีน" },
-                  { key: "HAS_NUMBER", label: "มีเบอร์สกรีน" },
-                  { key: "PLAIN", label: "เสื้อเปล่า" },
-                ].map((f) => (
-                  <button
-                    key={f.key}
-                    onClick={() => setSelectedCustomFilter(f.key)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
-                      selectedCustomFilter === f.key
-                        ? "bg-blue-600 text-white shadow-2xs"
-                        : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
-                    }`}
+              
+              {/* Left: Screen Filters & Sorting Dropdown */}
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-xs font-bold text-slate-600 mr-1">กรองสกรีน:</span>
+                  {[
+                    { key: "ALL", label: "ทั้งหมด" },
+                    { key: "HAS_NAME", label: "มีชื่อสกรีน" },
+                    { key: "HAS_NUMBER", label: "มีเบอร์สกรีน" },
+                    { key: "PLAIN", label: "เสื้อเปล่า" },
+                  ].map((f) => (
+                    <button
+                      key={f.key}
+                      onClick={() => setSelectedCustomFilter(f.key)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                        selectedCustomFilter === f.key
+                          ? "bg-blue-600 text-white shadow-2xs"
+                          : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Sort By Dropdown */}
+                <div className="flex items-center gap-1.5 bg-white px-3 py-1 rounded-xl border border-slate-200 shadow-2xs">
+                  <ArrowUpDown className="h-3.5 w-3.5 text-blue-600" />
+                  <span className="text-xs font-bold text-slate-600 whitespace-nowrap">เรียงลำดับ:</span>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                    className="bg-transparent text-xs font-bold text-slate-900 focus:outline-none cursor-pointer"
                   >
-                    {f.label}
-                  </button>
-                ))}
+                    <option value="ORDER_ASC">🔢 เลขออเดอร์ (น้อย ➔ มาก)</option>
+                    <option value="ORDER_DESC">🔢 เลขออเดอร์ (มาก ➔ น้อย)</option>
+                    <option value="SIZE_ASC">📏 ไซส์เสื้อ (S ➔ 8XL)</option>
+                    <option value="STUDENT_ID_ASC">🎓 รหัสนักศึกษา (น้อย ➔ มาก)</option>
+                    <option value="STUDENT_NAME_ASC">👤 ชื่อผู้สั่งซื้อ (ก-ฮ)</option>
+                    <option value="SPORT_ASC">⚽ ประเภทกีฬา</option>
+                  </select>
+                </div>
               </div>
 
-              {/* Sport Filter Dropdown */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-slate-600">กีฬา:</span>
-                <select
-                  value={selectedSportFilter}
-                  onChange={(e) => setSelectedSportFilter(e.target.value)}
-                  className="bg-white border border-slate-200 rounded-xl px-2.5 py-1 text-xs font-bold text-slate-800"
-                >
-                  <option value="ALL">ทุกประเภทกีฬา</option>
-                  {SPORT_TYPES.map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
+              {/* Right: Sport Filter Dropdown & Reset */}
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-slate-600">กีฬา:</span>
+                  <select
+                    value={selectedSportFilter}
+                    onChange={(e) => setSelectedSportFilter(e.target.value)}
+                    className="bg-white border border-slate-200 rounded-xl px-2.5 py-1 text-xs font-bold text-slate-800"
+                  >
+                    <option value="ALL">ทุกประเภทกีฬา</option>
+                    {SPORT_TYPES.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {isFilterActive && (
+                  <Button
+                    onClick={handleResetFilters}
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl text-xs font-bold text-rose-600 border-rose-200 hover:bg-rose-50"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5 mr-1" />
+                    <span>ล้างตัวกรอง</span>
+                  </Button>
+                )}
               </div>
+
             </div>
           </div>
 
           {/* 4. PRODUCTION JOB LIST */}
           {/* Mobile Card View */}
           <div className="grid grid-cols-1 gap-3 md:hidden">
-            {filteredList.map((item, idx) => (
+            {filteredAndSortedList.map((item, idx) => (
               <Card key={item.id} className="border-slate-200 bg-white rounded-2xl p-4 shadow-xs space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                   <div className="flex items-center gap-2">
@@ -630,7 +757,7 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
                   <span>ตารางใบสั่งงานสกรีนและตัดเย็บรายชิ้น (Production Job Sheet)</span>
                 </div>
                 <span className="text-xs text-slate-500 font-normal">
-                  แสดง {filteredList.length} จาก {productionList.length} รายการ
+                  แสดง {filteredAndSortedList.length} จาก {productionList.length} รายการ
                 </span>
               </CardTitle>
             </CardHeader>
@@ -652,7 +779,7 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
-                  {filteredList.map((item, idx) => (
+                  {filteredAndSortedList.map((item, idx) => (
                     <tr key={item.id} className="hover:bg-blue-50/30 transition-colors">
                       <td className="p-3.5 text-center font-bold text-slate-400 font-mono">
                         {idx + 1}
