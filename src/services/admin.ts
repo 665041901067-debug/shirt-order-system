@@ -11,15 +11,17 @@ export async function getAdminDashboardMetrics() {
     .from("orders")
     .select("id, status, total_amount, created_at");
 
-  const totalOrders = orders?.length || 0;
-  const totalSales = orders?.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0) || 0;
+  const activeOrders = orders?.filter((o) => o.status !== "CANCELLED") || [];
+  const totalOrders = activeOrders.length;
+  const totalSales = activeOrders.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
 
   const pendingPayment = orders?.filter((o) => o.status === "PENDING_PAYMENT").length || 0;
   const paymentReview = orders?.filter((o) => o.status === "PAYMENT_REVIEW").length || 0;
-  const paid = orders?.filter((o) => o.status === "PAID").length || 0;
-  const production = orders?.filter((o) => o.status === "PRODUCTION").length || 0;
+  const paid = orders?.filter((o) => o.status === "PAID" || o.status === "ORDER_ACCEPTED").length || 0;
+  const production = orders?.filter((o) => o.status === "PRODUCTION" || o.status === "PREPARING").length || 0;
   const readyForPickup = orders?.filter((o) => o.status === "READY_FOR_PICKUP").length || 0;
   const completed = orders?.filter((o) => o.status === "COMPLETED").length || 0;
+  const cancelled = orders?.filter((o) => o.status === "CANCELLED").length || 0;
 
   return {
     totalOrders,
@@ -30,6 +32,7 @@ export async function getAdminDashboardMetrics() {
     production,
     readyForPickup,
     completed,
+    cancelled,
   };
 }
 

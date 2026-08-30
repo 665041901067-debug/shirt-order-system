@@ -113,14 +113,15 @@ export function DashboardInteractive({ initialMetrics, orders: initialOrders }: 
   }, []);
 
   const hasData = orders.length > 0;
+  const activeOrders = orders.filter((o) => o.status !== "CANCELLED");
 
-  // 1. Process size distribution data
+  // 1. Process size distribution data (From ACTIVE orders only)
   const sizeCounts: Record<string, number> = {};
   let totalItemsCount = 0;
   let customNameCount = 0;
   let customNumberCount = 0;
 
-  orders.forEach((o) => {
+  activeOrders.forEach((o) => {
     o.items?.forEach((item) => {
       const sizeName = item.size_name_snapshot || "N/A";
       const q = item.quantity || 1;
@@ -148,9 +149,9 @@ export function DashboardInteractive({ initialMetrics, orders: initialOrders }: 
     value,
   }));
 
-  // 3. Process Academic Year Breakdown
+  // 3. Process Academic Year Breakdown (From ACTIVE orders only)
   const yearCounts: Record<string, { count: number; totalSales: number }> = {};
-  orders.forEach((o) => {
+  activeOrders.forEach((o) => {
     const yr = o.profile?.academic_year || "ไม่ระบุชั้นปี";
     if (!yearCounts[yr]) yearCounts[yr] = { count: 0, totalSales: 0 };
     yearCounts[yr].count += 1;
