@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Product, ProductSize, ProductImage, ProductImageType } from "@/types";
 import { createClient } from "@/lib/supabase/client";
 import { getAllAdminProducts } from "@/services/products";
+import { syncOrdersWithLatestProductPrices } from "@/services/admin";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -464,8 +465,12 @@ export function AdminProductsInteractive({ initialProducts }: Props) {
 
       await supabase.from("product_sizes").insert(sizesToInsert);
 
-      toast.success("บันทึกการแก้ไขสินค้าเรียบร้อยแล้ว!");
+      // Auto-sync all existing order prices with the new product prices!
+      await syncOrdersWithLatestProductPrices();
+
+      toast.success("บันทึกการแก้ไขสินค้าและอัปเดตราคาออเดอร์ทั้งหมดเรียบร้อยแล้ว!");
       window.dispatchEvent(new CustomEvent("app:product-changed"));
+      window.dispatchEvent(new CustomEvent("app:order-changed"));
       setSubmitting(false);
       setIsModalOpen(false);
       router.refresh();
@@ -536,6 +541,27 @@ export function AdminProductsInteractive({ initialProducts }: Props) {
     }
   };
 
+  const [isSyncingPrices, setIsSyncingPrices] = useState(false);
+
+  const handleSyncPrices = async () => {
+    setIsSyncingPrices(true);
+    toast.info("กำลังซิงค์ราคาใหม่ไปยังออเดอร์ทั้งหมดในระบบ...");
+
+    const res = await syncOrdersWithLatestProductPrices();
+    setIsSyncingPrices(false);
+
+    if (res.success) {
+      window.dispatchEvent(new CustomEvent("app:order-changed"));
+      if (res.totalRefundsDueCount > 0) {
+        toast.success(`ซิงค์ราคาสำเร็จ! อัปเดต ${res.updatedOrdersCount} ออเดอร์ (มี ${res.totalRefundsDueCount} ออเดอร์ชำระเกินยอด ต้องคืนเงินรวม ฿${res.totalRefundsDueAmount})`);
+      } else {
+        toast.success(`ซิงค์ราคาใหม่ไปยัง ${res.updatedOrdersCount} ออเดอร์เรียบร้อยแล้ว!`);
+      }
+    } else {
+      toast.error(res.error || "เกิดข้อผิดพลาดในการซิงค์ราคา");
+    }
+  };
+
   return (
     <div className="space-y-6">
       
@@ -548,10 +574,23 @@ export function AdminProductsInteractive({ initialProducts }: Props) {
           </h1>
         </div>
 
-        <Button onClick={openCreateModal} className="rounded-xl font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-sm">
-          <Plus className="h-4 w-4 mr-1.5" />
-          <span>เพิ่มสินค้าใหม่</span>
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            onClick={handleSyncPrices}
+            disabled={isSyncingPrices}
+            variant="outline"
+            className="rounded-xl font-bold text-xs bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300 shadow-2xs"
+            title="กดปุ่มนี้เพื่ออัปเดตราคาออเดอร์ทั้งหมดให้ตรงกับราคาหลักของสินค้าล่าสุด"
+          >
+            <Sparkles className={`h-4 w-4 mr-1.5 text-amber-600 ${isSyncingPrices ? "animate-spin" : ""}`} />
+            <span>{isSyncingPrices ? "กำลังซิงค์ราคา..." : "⚡ ซิงค์ราคาออเดอร์ทั้งหมด"}</span>
+          </Button>
+
+          <Button onClick={openCreateModal} className="rounded-xl font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-sm">
+            <Plus className="h-4 w-4 mr-1.5" />
+            <span>เพิ่มสินค้าใหม่</span>
+          </Button>
+        </div>
       </div>
 
       {/* Product List or Empty State */}

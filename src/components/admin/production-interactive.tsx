@@ -10,14 +10,14 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Factory, 
-  Download, 
-  Shirt, 
-  Hash, 
-  User, 
-  FileSpreadsheet, 
-  Search, 
+import {
+  Factory,
+  Download,
+  Shirt,
+  Hash,
+  User,
+  FileSpreadsheet,
+  Search,
   FileText,
   Printer,
   CheckCircle2,
@@ -72,7 +72,7 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
         if (data) {
           setOrders(data as Order[]);
         }
-      } catch (e) {}
+      } catch (e) { }
     };
 
     const channel = supabase
@@ -275,7 +275,7 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
 
     // Sheet 1: Factory Job Order Sheet (สำหรับส่งร้านตัดเย็บสกรีนและคนแจกเสื้อ)
     const jobSheet = workbook.addWorksheet("ใบสั่งงานสกรีนและตัดเย็บ");
-    
+
     jobSheet.columns = [
       { header: "ลำดับ", key: "no", width: 8 },
       { header: "รายการสินค้า / แบบเสื้อ", key: "product_name", width: 30 },
@@ -453,7 +453,7 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
 
   return (
     <div className="space-y-6">
-      
+
       {/* Header */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
@@ -470,21 +470,19 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
             <div className="bg-slate-100 p-1 rounded-xl flex items-center gap-1 border border-slate-200">
               <button
                 onClick={() => setExportScope("FILTERED")}
-                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
-                  exportScope === "FILTERED"
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${exportScope === "FILTERED"
                     ? "bg-white text-blue-700 shadow-2xs"
                     : "text-slate-600 hover:text-slate-900"
-                }`}
+                  }`}
               >
                 ตามตัวกรอง ({filteredAndSortedList.length})
               </button>
               <button
                 onClick={() => setExportScope("ALL")}
-                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
-                  exportScope === "ALL"
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${exportScope === "ALL"
                     ? "bg-white text-blue-700 shadow-2xs"
                     : "text-slate-600 hover:text-slate-900"
-                }`}
+                  }`}
               >
                 ทั้งหมด ({productionList.length})
               </button>
@@ -518,7 +516,7 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
         />
       ) : (
         <div className="space-y-6">
-          
+
           {/* 1. SPORT BREAKDOWN SUMMARY CARD (สำหรับคนแจกเสื้อ) */}
           <Card className="border-emerald-200 bg-linear-to-br from-emerald-50/50 to-white rounded-2xl p-5 shadow-xs space-y-3">
             <div className="flex items-center justify-between">
@@ -536,11 +534,10 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
                 <button
                   key={s.sport}
                   onClick={() => setSelectedSportFilter(selectedSportFilter === s.sport ? "ALL" : s.sport)}
-                  className={`p-3 rounded-xl border text-xs font-bold transition-all ${
-                    selectedSportFilter === s.sport
+                  className={`p-3 rounded-xl border text-xs font-bold transition-all ${selectedSportFilter === s.sport
                       ? "border-emerald-600 bg-emerald-600 text-white shadow-xs ring-2 ring-emerald-300"
                       : "border-emerald-200/80 bg-white hover:bg-emerald-50/50 text-slate-800"
-                  }`}
+                    }`}
                 >
                   <span className="block text-[11px] opacity-80 truncate">{s.sport}</span>
                   <span className="text-lg font-extrabold">{s.count}</span>
@@ -567,11 +564,10 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
                 <button
                   key={s.size_name}
                   onClick={() => setSelectedSizeFilter(selectedSizeFilter === s.size_name ? "ALL" : s.size_name)}
-                  className={`p-3 rounded-xl border text-xs font-bold transition-all ${
-                    selectedSizeFilter === s.size_name
+                  className={`p-3 rounded-xl border text-xs font-bold transition-all ${selectedSizeFilter === s.size_name
                       ? "border-blue-600 bg-blue-600 text-white shadow-xs"
                       : "border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-800"
-                  }`}
+                    }`}
                 >
                   <span className="block text-[11px] opacity-80 uppercase">ไซส์ {s.size_name}</span>
                   <span className="text-lg font-extrabold">{s.count}</span>
@@ -587,11 +583,10 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
               <div className="flex flex-wrap items-center gap-1.5 pb-1">
                 <button
                   onClick={() => setSelectedSizeFilter("ALL")}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap ${
-                    selectedSizeFilter === "ALL"
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap ${selectedSizeFilter === "ALL"
                       ? "bg-slate-900 text-white"
                       : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
-                  }`}
+                    }`}
                 >
                   ดูทุกไซส์ ({productionList.length})
                 </button>
@@ -599,11 +594,10 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
                   <button
                     key={s.size_name}
                     onClick={() => setSelectedSizeFilter(s.size_name)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap ${
-                      selectedSizeFilter === s.size_name
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap ${selectedSizeFilter === s.size_name
                         ? "bg-slate-900 text-white"
                         : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
-                    }`}
+                      }`}
                   >
                     ไซส์ {s.size_name} ({s.count})
                   </button>
@@ -625,7 +619,7 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
 
             {/* Custom Screen & Sport Filter & Sort Bar */}
             <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200/80">
-              
+
               {/* Left: Screen Filters & Sorting Dropdown */}
               <div className="flex flex-wrap items-center gap-3">
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -639,11 +633,10 @@ export function ProductionInteractive({ summary: initialSummary, orders: initial
                     <button
                       key={f.key}
                       onClick={() => setSelectedCustomFilter(f.key)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
-                        selectedCustomFilter === f.key
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${selectedCustomFilter === f.key
                           ? "bg-blue-600 text-white shadow-2xs"
                           : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
-                      }`}
+                        }`}
                     >
                       {f.label}
                     </button>

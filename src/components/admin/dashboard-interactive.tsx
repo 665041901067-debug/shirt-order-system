@@ -174,7 +174,23 @@ export function DashboardInteractive({ initialMetrics, orders: initialOrders }: 
     .filter((o) => o.status === "PENDING_PAYMENT")
     .reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
 
-  // 5. Recent 5 Orders
+  // 5. Calculate Total Refunds Due
+  let totalRefundDueCount = 0;
+  let totalRefundDueAmount = 0;
+
+  activeOrders.forEach((o) => {
+    const paidAmt = Number(o.payment?.amount) || 0;
+    const ordTotal = Number(o.total_amount) || 0;
+    const isPaidOrder = o.payment?.status === "VERIFIED" || ["PAID", "ORDER_ACCEPTED", "READY_FOR_PICKUP", "COMPLETED"].includes(o.status);
+    const isRefunded = o.payment?.notes?.includes("[REFUNDED]");
+
+    if (isPaidOrder && paidAmt > ordTotal && !isRefunded) {
+      totalRefundDueCount++;
+      totalRefundDueAmount += (paidAmt - ordTotal);
+    }
+  });
+
+  // 6. Recent 5 Orders
   const recentOrders = activeOrders.slice(0, 5);
 
   return (
@@ -193,6 +209,32 @@ export function DashboardInteractive({ initialMetrics, orders: initialOrders }: 
           </Button>
         </Link>
       </div>
+
+      {/* Refund Due Alert Banner */}
+      {totalRefundDueCount > 0 && (
+        <Card className="border-rose-200 bg-rose-50/70 rounded-3xl p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-2xl bg-rose-500 text-white flex items-center justify-center font-bold text-lg shrink-0">
+              💸
+            </div>
+            <div>
+              <h3 className="font-extrabold text-sm text-rose-950">
+                มียอดเงินที่ต้องคืนส่วนต่างนักศึกษา: ฿{totalRefundDueAmount.toLocaleString()} บาท ({totalRefundDueCount} รายการ)
+              </h3>
+              <p className="text-xs text-rose-700 mt-0.5">
+                จากการปรับลดราคาเสื้อหลัก แอดมินสามารถเข้าไปที่หน้าจัดการออเดอร์เพื่อดูรายชื่อนักศึกษาและบันทึกการคืนเงินได้
+              </p>
+            </div>
+          </div>
+
+          <Link href="/admin/orders">
+            <Button size="sm" className="rounded-xl font-bold text-xs bg-rose-600 hover:bg-rose-500 text-white shadow-xs whitespace-nowrap">
+              <span>จัดการคืนเงิน</span>
+              <ArrowRight className="h-3.5 w-3.5 ml-1" />
+            </Button>
+          </Link>
+        </Card>
+      )}
 
       {/* Metric Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

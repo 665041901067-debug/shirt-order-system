@@ -26,7 +26,8 @@ import {
   CreditCard,
   Banknote,
   Edit3,
-  Download
+  Download,
+  Sparkles
 } from "lucide-react";
 
 import { ORDER_STEPS, getStatusLabel, getStatusBadgeVariant } from "@/lib/order-status";
@@ -245,6 +246,35 @@ export function OrderTrackingInteractive({ initialOrder, paymentMethods = [] }: 
           <span>อัปเดตสถานะแบบเรียลไทม์</span>
         </div>
       </div>
+
+      {/* Price Reduction / Refund Alert Notice */}
+      {(() => {
+        const paidAmt = Number(order.payment?.amount) || 0;
+        const ordTotal = Number(order.total_amount) || 0;
+        const isPaidOrder = order.payment?.status === "VERIFIED" || ["PAID", "ORDER_ACCEPTED", "PREPARING", "PRODUCTION", "READY_FOR_PICKUP", "COMPLETED"].includes(order.status);
+        const isRefunded = order.payment?.notes?.includes("[REFUNDED]");
+        const refundDue = isPaidOrder && paidAmt > ordTotal ? paidAmt - ordTotal : 0;
+
+        if (refundDue <= 0) return null;
+
+        return (
+          <div className={`p-4 rounded-2xl border text-xs space-y-1 ${
+            isRefunded
+              ? "bg-emerald-50 text-emerald-950 border-emerald-200"
+              : "bg-amber-50 text-amber-950 border-amber-300"
+          }`}>
+            <div className="flex items-center gap-2 font-bold text-sm">
+              <Sparkles className={`h-4 w-4 ${isRefunded ? "text-emerald-600" : "text-amber-600"}`} />
+              <span>{isRefunded ? "✅ คืนเงินส่วนต่างเรียบร้อยแล้ว" : "📢 แจ้งเตือนการคืนเงินส่วนต่าง (ปรับลดราคาเสื้อ)"}</span>
+            </div>
+            <p>
+              {isRefunded
+                ? `ทางสาขาได้ทำการคืนเงินส่วนต่างจากการปรับลดราคาเสื้อจำนวน ฿${refundDue.toLocaleString()} บาท ให้คุณเรียบร้อยแล้ว!`
+                : `เนื่องจากสาขามีการปรับลดราคาเสื้อลง คุณได้ชำระเงินตามราคาเดิมเกินมาจำนวน ฿${refundDue.toLocaleString()} บาท ทางสาขาจะดำเนินการคืนเงินส่วนต่างให้คุณในวันรับเสื้อหรือโอนคืนต่อไป`}
+            </p>
+          </div>
+        );
+      })()}
 
       {/* Main Order Status Header */}
       <Card className="border-slate-200 bg-white rounded-3xl shadow-xs overflow-hidden">

@@ -336,3 +336,187 @@ export async function updateOrderDetails(
     return { success: false, error: err?.message || "เกิดข้อผิดพลาดในการบันทึกแก้ไขออเดอร์" };
   }
 }
+
+export async function syncOrdersWithLatestProductPrices(): Promise<{
+  success: boolean;
+  updatedOrdersCount: number;
+  totalRefundsDueCount: number;
+  totalRefundsDueAmount: number;
+  error?: string;
+}> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) return { success: false, updatedOrdersCount: 0, totalRefundsDueCount: 0, totalRefundsDueAmount: 0, error: "กรุณาเข้าสู่ระบบก่อนทำรายการ" };
+
+  try {
+    // 1. Fetch all products with their sizes
+    const { data: products } = await supabase
+      .from("products")
+      .select("id, base_price, sizes:product_sizes(size_name, price_adjustment)");
+
+    if (!products) return { success: true, updatedOrdersCount: 0, totalRefundsDueCount: 0, totalRefundsDueAmount: 0 };
+
+    const productMap: Record<string, { base_price: number; sizes: Record<string, number> }> = {};
+    products.forEach((p: any) => {
+      const sizesMap: Record<string, number> = {};
+      (p.sizes || []).forEach((s: any) => {
+        sizesMap[s.size_name] = Number(s.price_adjustment) || 0;
+      });
+      productMap[p.id] = {
+        base_price: Number(p.base_price) || 0,
+        sizes: sizesMap,
+      };
+    });
+
+    // 2. Fetch all non-cancelled orders with items and payment
+    const { data: orders } = await supabase
+      .from("orders")
+      .select("*, items:order_items(*), payment:payments(*)");
+
+    if (!orders || orders.length === 0) {
+      return { success: true, updatedOrdersCount: 0, totalRefundsDueCount: 0, totalRefundsDueAmount: 0 };
+    }
+
+    let updatedOrdersCount = 0;
+    let totalRefundsDueCount = 0;
+    let totalRefundsDueAmount = 0;
+
+    for (const order of orders) {
+      if (order.status === "CANCELLED") continue;
+
+      let newOrderTotal = 0;
+      let itemsChanged = false;
+
+      const itemsToUpdate: any[] = [];
+      for (const item of (order.items || [])) {
+        const prodInfo = productMap[item.product_id];
+        let newBasePrice = Number(item.base_price_snapshot) || 0;
+        let newSizePrice = Number(item.size_price_snapshot) || 0;
+
+        if (prodInfo) {
+          newBasePrice = prodInfo.base_price;
+          if (item.size_name_snapshot && prodInfo.sizes[item.size_name_snapshot] !== undefined) {
+            newSizePrice = prodInfo.sizes[item.size_name_snapshot];
+          }
+        }
+
+        const unitPrice = newBasePrice + newSizePrice;
+        const qty = Number(item.quantity) || 1;
+        const newItemSubtotal = unitPrice * qty;
+
+        if (
+          newBasePrice !== item.base_price_snapshot ||
+          newSizePrice !== item.size_price_snapshot ||
+          newItemSubtotal !== item.subtotal
+        ) {
+          itemsChanged = true;
+          itemsToUpdate.push({
+            id: item.id,
+            base_price_snapshot: newBasePrice,
+            size_price_snapshot: newSizePrice,
+            subtotal: newItemSubtotal,
+          });
+        }
+        newOrderTotal += newItemSubtotal;
+      }
+
+      const totalChanged = Number(order.total_amount) !== newOrderTotal;
+
+      if (itemsChanged || totalChanged) {
+        // Update order items in DB
+        for (const itemUpd of itemsToUpdate) {
+          await supabase
+            .from("order_items")
+            .update({
+              base_price_snapshot: itemUpd.base_price_snapshot,
+              size_price_snapshot: itemUpd.size_price_snapshot,
+              subtotal: itemUpd.subtotal,
+            })
+            .eq("id", itemUpd.id);
+        }
+
+        // Update order total in DB
+        await supabase
+          .from("orders")
+          .update({
+            total_amount: newOrderTotal,
+            subtotal: newOrderTotal,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", order.id);
+
+        // If order is UNPAID (PENDING_PAYMENT, PAYMENT_REVIEW), also update payment amount so QR code is updated!
+        const isUnpaid = order.status === "PENDING_PAYMENT" || order.status === "PAYMENT_REVIEW";
+        if (isUnpaid && order.payment) {
+          await supabase
+            .from("payments")
+            .update({ amount: newOrderTotal })
+            .eq("id", order.payment.id);
+        }
+
+        updatedOrdersCount++;
+      }
+
+      // Check for Refund Due (Paid students who overpaid)
+      const isPaid = order.payment?.status === "VERIFIED" || ["PAID", "ORDER_ACCEPTED", "READY_FOR_PICKUP", "COMPLETED"].includes(order.status);
+      if (isPaid && order.payment) {
+        const paidAmt = Number(order.payment.amount) || 0;
+        if (paidAmt > newOrderTotal && !order.payment.notes?.includes("[REFUNDED]")) {
+          const diff = paidAmt - newOrderTotal;
+          totalRefundsDueCount++;
+          totalRefundsDueAmount += diff;
+        }
+      }
+    }
+
+    return {
+      success: true,
+      updatedOrdersCount,
+      totalRefundsDueCount,
+      totalRefundsDueAmount,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      updatedOrdersCount: 0,
+      totalRefundsDueCount: 0,
+      totalRefundsDueAmount: 0,
+      error: err?.message || "เกิดข้อผิดพลาดในการซิงค์ราคา",
+    };
+  }
+}
+
+export async function markRefundAsCompleted(orderId: string): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: "กรุณาเข้าสู่ระบบก่อน" };
+
+  const { data: payment } = await supabase
+    .from("payments")
+    .select("id, notes")
+    .eq("order_id", orderId)
+    .single();
+
+  if (payment) {
+    const existingNotes = payment.notes || "";
+    const updatedNotes = existingNotes.includes("[REFUNDED]")
+      ? existingNotes
+      : `[REFUNDED] ${existingNotes}`.trim();
+
+    await supabase
+      .from("payments")
+      .update({ notes: updatedNotes })
+      .eq("id", payment.id);
+  }
+
+  // Log audit
+  await supabase.from("audit_logs").insert({
+    user_id: user.id,
+    action: "MARK_REFUND_COMPLETED",
+    entity_type: "orders",
+    entity_id: orderId,
+  });
+
+  return { success: true };
+}

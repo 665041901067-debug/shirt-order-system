@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import ExcelJS from "exceljs";
 import { Order, OrderStatus, PaymentStatus } from "@/types";
-import { updateOrderStatus, verifyPayment, clearAllOrdersData, updateOrderDetails } from "@/services/admin";
+import { updateOrderStatus, verifyPayment, clearAllOrdersData, updateOrderDetails, syncOrdersWithLatestProductPrices, markRefundAsCompleted } from "@/services/admin";
 import { getStatusBadgeVariant, getStatusLabel } from "@/lib/order-status";
 import { createClient } from "@/lib/supabase/client";
 import { SmartPickupScannerModal } from "./smart-pickup-scanner-modal";
@@ -553,6 +553,52 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
     await verifyPayment(paymentId, newPaymentStatus);
   };
 
+  const [isSyncingPrices, setIsSyncingPrices] = useState(false);
+
+  const handleSyncPrices = async () => {
+    setIsSyncingPrices(true);
+    toast.info("กำลังซิงค์ราคาใหม่ไปยังออเดอร์ทั้งหมดในระบบ...");
+
+    const res = await syncOrdersWithLatestProductPrices();
+    setIsSyncingPrices(false);
+
+    if (res.success) {
+      window.dispatchEvent(new CustomEvent("app:order-changed"));
+      if (res.totalRefundsDueCount > 0) {
+        toast.success(`ซิงค์ราคาสำเร็จ! อัปเดต ${res.updatedOrdersCount} ออเดอร์ (มี ${res.totalRefundsDueCount} ออเดอร์ชำระเกินยอด ต้องคืนเงินรวม ฿${res.totalRefundsDueAmount})`);
+      } else {
+        toast.success(`ซิงค์ราคาใหม่ไปยัง ${res.updatedOrdersCount} ออเดอร์เรียบร้อยแล้ว!`);
+      }
+    } else {
+      toast.error(res.error || "เกิดข้อผิดพลาดในการซิงค์ราคา");
+    }
+  };
+
+  const handleMarkRefundCompleted = async (targetOrder: Order) => {
+    // 1. Optimistic Update (0ms)
+    setOrders((prev) =>
+      prev.map((o) => {
+        if (o.id === targetOrder.id && o.payment) {
+          const notes = o.payment.notes || "";
+          return {
+            ...o,
+            payment: {
+              ...o.payment,
+              notes: notes.includes("[REFUNDED]") ? notes : `[REFUNDED] ${notes}`.trim(),
+            },
+          };
+        }
+        return o;
+      })
+    );
+
+    toast.success(`บันทึกคืนเงินส่วนต่างออเดอร์ #${targetOrder.order_number} เรียบร้อยแล้ว!`);
+
+    // 2. Backend update
+    await markRefundAsCompleted(targetOrder.id);
+    window.dispatchEvent(new CustomEvent("app:order-changed"));
+  };
+
   // 1-Click Order List Excel Export (ดึงจากฐานข้อมูลตามตัวกรองและสถานะจริง)
   const handleExportOrdersExcel = async (targetOrders = filteredOrders) => {
     const workbook = new ExcelJS.Workbook();
@@ -736,6 +782,18 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
 
         {/* Action Buttons: Export, Clear Orders, Smart Scanner & Filter Toggle */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* Price Sync Button */}
+          <Button
+            onClick={handleSyncPrices}
+            disabled={isSyncingPrices}
+            variant="outline"
+            className="rounded-xl font-bold text-xs bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300 shadow-2xs"
+            title="กดปุ่มนี้เพื่ออัปเดตราคาออเดอร์ทั้งหมดให้ตรงกับราคาหลักของสินค้าล่าสุด"
+          >
+            <Sparkles className={`h-4 w-4 mr-1.5 text-amber-600 ${isSyncingPrices ? "animate-spin" : ""}`} />
+            <span>{isSyncingPrices ? "กำลังซิงค์..." : "⚡ ซิงค์ราคาออเดอร์"}</span>
+          </Button>
+
           {/* Export Buttons */}
           <Button
             onClick={() => handleExportOrdersCSV(filteredOrders)}
@@ -1121,6 +1179,36 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
                           <span className="text-slate-500">รอชำระเงิน</span>
                         )}
                       </span>
+
+                      {/* Refund Due Indicator for Mobile */}
+                      {(() => {
+                        const paidAmt = Number(order.payment?.amount) || 0;
+                        const ordTotal = Number(order.total_amount) || 0;
+                        const isPaidOrder = order.payment?.status === "VERIFIED" || ["PAID", "ORDER_ACCEPTED", "READY_FOR_PICKUP", "COMPLETED"].includes(order.status);
+                        const isRefundCompleted = order.payment?.notes?.includes("[REFUNDED]");
+                        const refundDueAmt = isPaidOrder && paidAmt > ordTotal ? paidAmt - ordTotal : 0;
+
+                        if (refundDueAmt <= 0) return null;
+
+                        return isRefundCompleted ? (
+                          <span className="inline-block text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 mt-1">
+                            ✅ คืนเงินส่วนต่าง ฿{refundDueAmt} แล้ว
+                          </span>
+                        ) : (
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <span className="inline-block text-[10px] font-extrabold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200 animate-pulse">
+                              💸 ยอดต้องคืนเงิน: ฿{refundDueAmt}
+                            </span>
+                            <Button
+                              size="sm"
+                              onClick={() => handleMarkRefundCompleted(order)}
+                              className="rounded-xl text-[10px] h-6 px-2 font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-2xs"
+                            >
+                              ✅ คืนเงินแล้ว
+                            </Button>
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     <div className="flex items-center gap-1.5">
@@ -1301,6 +1389,37 @@ export function AdminOrdersInteractive({ initialOrders }: Props) {
                                 รอชำระเงิน
                               </Badge>
                             )}
+
+                            {/* Refund Indicator Desktop */}
+                            {(() => {
+                              const paidAmt = Number(order.payment?.amount) || 0;
+                              const ordTotal = Number(order.total_amount) || 0;
+                              const isPaidOrder = order.payment?.status === "VERIFIED" || ["PAID", "ORDER_ACCEPTED", "READY_FOR_PICKUP", "COMPLETED"].includes(order.status);
+                              const isRefundCompleted = order.payment?.notes?.includes("[REFUNDED]");
+                              const refundDueAmt = isPaidOrder && paidAmt > ordTotal ? paidAmt - ordTotal : 0;
+
+                              if (refundDueAmt <= 0) return null;
+
+                              return isRefundCompleted ? (
+                                <div className="mt-1">
+                                  <Badge variant="success" size="sm" className="text-[10px]">
+                                    ✅ คืนเงิน ฿{refundDueAmt} แล้ว
+                                  </Badge>
+                                </div>
+                              ) : (
+                                <div className="mt-1 space-y-1">
+                                  <Badge variant="danger" size="sm" className="text-[10px] bg-rose-100 text-rose-800 border-rose-300 animate-pulse block">
+                                    💸 คืนเงิน: ฿{refundDueAmt}
+                                  </Badge>
+                                  <button
+                                    onClick={() => handleMarkRefundCompleted(order)}
+                                    className="block text-[10px] font-bold text-emerald-700 hover:underline bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200"
+                                  >
+                                    ✅ บันทึกคืนเงินแล้ว
+                                  </button>
+                                </div>
+                              );
+                            })()}
                           </div>
                         </td>
 
